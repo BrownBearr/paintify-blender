@@ -2,4 +2,4 @@
 - [x] Implement Blender compositor node and renderer bridge.
 - [x] Document setup and limitations.
 - [x] Run tests, build, and paint a 1920 x 1080 sample.
-- [ ] Publish independent public repository.
+- [x] Publish independent public repository.
