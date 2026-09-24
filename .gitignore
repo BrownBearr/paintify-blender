@@ -1,0 +1,4 @@
+/build/
+/paintify_gpu.zip
+__pycache__/
+*.pyc
