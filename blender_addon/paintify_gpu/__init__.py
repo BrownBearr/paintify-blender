@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Paintify Live",
     "author": "BrownBearr",
-    "version": (0, 3, 0),
+    "version": (0, 3, 1),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Paintify",
     "description": "Live painterly overlay of the 3D Viewport, and painted renders that match it",
