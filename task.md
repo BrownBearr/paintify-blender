@@ -1,5 +1,4 @@
-- [x] Copy independent GPU renderer source and shaders.
-- [x] Implement Blender compositor node and renderer bridge.
-- [x] Document setup and limitations.
-- [x] Run tests, build, and paint a 1920 x 1080 sample.
-- [x] Publish independent public repository.
+- [x] Inspect Blender draw API and renderer pipeline.
+- [x] Build viewport overlay and persistent GPU frame bridge.
+- [x] Verify protocol tests and GPU stream round trip.
+- [x] Package add-on and publish changes to paintify-blender.

@@ -1,9 +1,11 @@
-# Paintify Blender implementation
+# Live viewport rewrite
 
-- [NEW] `blender_addon/paintify_gpu/__init__.py`: compositor node with image/movie source, paint controls, GPU execution, and output image.
-- [NEW] `blender_addon/paintify_gpu/engine.py`: validate settings, assemble safe argument vectors, run bundled renderer, and report failures.
-- [MODIFY] `tools/build.bat`, `vcpkg.json`: independent Windows build using the user's vcpkg checkout.
-- [NEW] `README.md`, `system_architecture.md`: setup, use, and honest compositor integration limits.
-- [NEW] `tests/test_engine.py`: command generation and error-path checks without Blender.
+- [NEW] `src/stream.cpp`: persistent raw RGBA GPU renderer process.
+- [MODIFY] `CMakeLists.txt`: build the stream renderer beside the existing CLI.
+- [REPLACE] `blender_addon/paintify_gpu/__init__.py`: 3D Viewport overlay and controls.
+- [REPLACE] `blender_addon/paintify_gpu/engine.py` with `stream_bridge.py`: asynchronous frame transport.
+- [MODIFY] `README.md`, `system_architecture.md`, `task.md`: explain live viewport behavior and limits.
+- [REPLACE] bridge tests: protocol framing, validation, row orientation.
 
-Verify Python tests and a Release GPU build. If Blender is installed, verify registration and a compositor paint round trip in Blender background mode.
+Verify the Python tests, C++ build, real frame stream through the GPU backend,
+and Blender registration if an executable is available.

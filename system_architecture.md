@@ -1,16 +1,21 @@
-# Architecture
+# Paintify Live architecture
 
-`src/` and `shaders/` contain an independent copy of the Paintify GPU renderer.
-`tools/build.bat` builds it with the repository root compiled into `SBR_ROOT_DIR`,
-which is used to locate shaders at runtime.
+The add-on is a 3D Viewport draw handler and sidebar panel. `GPUOffScreen` draws
+the current viewport at the selected resolution. The add-on reads RGBA8 pixels,
+flips row order, and sends a binary `PPV1` frame to `paintify-stream.exe` via
+stdin. A worker thread handles all pipe I/O and allows only one frame in flight.
+Blender GPU calls remain on the main thread. The latest painted frame comes
+back over stdout, is uploaded as `GPUTexture`, and is drawn with `IMAGE_COLOR`
+over the active viewport. A timer schedules repaint at the selected cadence.
 
-The Blender add-on registers `PAINTIFY_CompositorNode`, a custom compositor
-group node. Each instance owns a distinct internal compositor node group with
-an Image node linked to Group Output. The `paintify.paint_node` operator invokes
-the external GPU renderer for the chosen image or video file and loads the
-result into that internal Image node. Rendering and video decode/encode happen
-in the GPU renderer process; the add-on is a Blender UI and compositor bridge.
+`paintify-stream.exe` owns a persistent hidden GLFW OpenGL context and a
+`Pipeline`. It uses the original GPU renderer stages in `src/pipeline.cpp` and
+`shaders/`. A fixed 48-byte little-endian header contains frame dimensions,
+sequence and look controls, followed by top-row-first RGBA8. The reply is a
+16-byte header and top-row-first RGBA8. The process is restarted only when the
+overlay is toggled, not per frame. Preset or parameter changes reset temporal
+reuse; otherwise the previous paint may carry forward for stable strokes.
 
-Do not add an image input socket unless there is an implementation that actually
-passes its pixels to the renderer. Python custom group nodes expose sockets but
-cannot implement arbitrary compositor pixel operations.
+The preview is an overlay, not a compositor output or render pass. Python GPU
+buffer readback is the main likely performance bottleneck. The default 50%
+capture resolution is an intentional throughput tradeoff.
