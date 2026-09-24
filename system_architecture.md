@@ -1,23 +1,43 @@
 # Paintify Live architecture
 
-The add-on is a 3D Viewport draw handler and sidebar panel. `GPUOffScreen` draws
-the current viewport at the selected resolution. The add-on reads RGBA8 pixels,
-flips row order, and sends a binary `PPV1` frame to `paintify-stream.exe` via
-stdin. A worker thread handles all pipe I/O and allows only one frame in flight.
-Blender GPU calls remain on the main thread. The latest painted frame comes
-back over stdout, is uploaded as `GPUTexture`, and is drawn with `IMAGE_COLOR`
-over the active viewport. A timer schedules repaint at the selected cadence.
-Blender 5.2 requires `FLOAT` buffers when constructing a `GPUTexture`, even
-when the texture format is `RGBA8`; NumPy normalizes the returned bytes first.
+The add-on paints on Blender's `gpu` module. `painter.py` owns the render
+targets and runs the stages; `stages.py` declares each shader's resources and
+`shaders/*.glsl` holds the code, ported from the paintify-GPU renderer
+(`src/pipeline.cpp` and `shaders/` in that repository). Blender compiles the
+GLSL for Metal, Vulkan or OpenGL, so the same code runs on macOS, Windows and
+Linux.
 
-`paintify-stream.exe` owns a persistent hidden GLFW OpenGL context and a
-`Pipeline`. It uses the original GPU renderer stages in `src/pipeline.cpp` and
-`shaders/`. A fixed 48-byte little-endian header contains frame dimensions,
-sequence and look controls, followed by top-row-first RGBA8. The reply is a
-16-byte header and top-row-first RGBA8. The process is restarted only when the
-overlay is toggled, not per frame. Preset or parameter changes reset temporal
-reuse; otherwise the previous paint may carry forward for stable strokes.
+Per painted frame, all on the GPU with no readback:
 
-The preview is an overlay, not a compositor output or render pass. Python GPU
-buffer readback is the main likely performance bottleneck. The default 50%
-capture resolution is an intentional throughput tradeoff.
+1. Import the source texture, keeping the previous one for temporal mode.
+2. Underpaint: the previous canvas (temporal), the coarsest Gaussian, or the
+   image mean.
+3. Per layer, coarse to fine: Gaussian reference, Sobel gradient, Lab error
+   against the canvas, per-cell reduction. Then 8 to 32 passes of seed+trace
+   (compute) and stroke rasterisation (instanced triangle strips, premultiplied
+   blend into canvas and height targets).
+4. Optional relaxation over the frame's stroke pool, repainting after each
+   iteration, then impasto lighting.
+
+Blender's Python GPU API has no storage buffers or atomics, so strokes live in
+RGBA32F textures and each pass owns one cell of every block of `passes`
+consecutive cells, picked by a hashed permutation. That replaces the atomic
+seed compaction of the paintify-GPU renderer and makes painting deterministic.
+Per-layer values travel as push constants; frame settings sit in a uniform
+buffer created once per frame.
+
+Brush radii scale with `sqrt(width * height)` (`looks.stroke_scale`), so the
+look depends on the frame, not the pixel count.
+
+`viewport.py` draws the live overlay from a 3D Viewport `POST_PIXEL` handler.
+In camera view it renders the camera frame through `GPUOffScreen.draw_view3d`
+with the camera's matrices at the render aspect; otherwise the whole region.
+The painted canvas is drawn back as a textured quad.
+
+`render.py` renders each frame with the scene's engine, saves the result
+through the scene's colour management (the display-referred image the
+overlay also paints), paints it at render size and writes the scene's output.
+A scratch scene with the Standard view transform writes the pixels unchanged;
+movies are encoded by that scene's sequencer from a temporary PNG sequence.
+The render uses its own Painter, so its temporal state never mixes with the
+viewport's.

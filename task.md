@@ -1,4 +1,0 @@
-- [x] Inspect Blender draw API and renderer pipeline.
-- [x] Build viewport overlay and persistent GPU frame bridge.
-- [x] Verify protocol tests and GPU stream round trip.
-- [x] Package add-on and publish changes to paintify-blender.
