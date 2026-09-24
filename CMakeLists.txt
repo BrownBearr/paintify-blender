@@ -24,23 +24,9 @@ add_executable(gpu-sbr
 target_include_directories(gpu-sbr PRIVATE src ${STB_INCLUDE_DIRS})
 target_link_libraries(gpu-sbr PRIVATE glfw glad::glad glm::glm imgui::imgui)
 
-# Persistent raw-RGBA renderer for the Blender viewport overlay. It has no UI
-# and keeps one OpenGL context and one Pipeline alive across all frames.
-add_executable(paintify-stream
-    src/stream.cpp
-    src/pipeline.cpp
-    src/gl_util.cpp
-    src/brush_atlas.cpp
-)
-target_include_directories(paintify-stream PRIVATE src ${STB_INCLUDE_DIRS})
-target_link_libraries(paintify-stream PRIVATE glfw glad::glad glm::glm)
-target_compile_definitions(paintify-stream PRIVATE SBR_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-
 if(MSVC)
     target_compile_options(gpu-sbr PRIVATE /W3 /permissive- /utf-8)
     target_compile_definitions(gpu-sbr PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
-    target_compile_options(paintify-stream PRIVATE /W3 /permissive- /utf-8)
-    target_compile_definitions(paintify-stream PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
 endif()
 
 # Shaders and brushes are loaded at runtime; point the exe at the source tree so

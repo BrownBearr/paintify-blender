@@ -1,50 +1,70 @@
 # Paintify Live for Blender
 
-Paintify Live paints **whatever the active 3D Viewport shows** and displays the
-result as a live overlay. It uses the same GPU Hertzmann stroke pipeline as
-[paintify-GPU](https://github.com/BrownBearr/paintify-GPU), including curved
-brush strokes, relaxation, brush texture and impasto. There is no MP4 or image
-picker in the add-on. Move the camera, orbit the model, scrub Blender's timeline,
-or play animation; the overlay samples the viewport again.
+Paintify Live paints **whatever the active 3D Viewport shows** as a live
+overlay, and paints **final renders** (stills, image sequences and movies) the
+same way. It uses the GPU Hertzmann stroke pipeline from
+[paintify-GPU](https://github.com/BrownBearr/paintify-GPU): curved brush
+strokes, relaxation, brush texture and impasto.
 
-This is an independent repository. Neither `paintify-GPU` nor the TouchDesigner
-repo is required at build or runtime.
+The painter runs on Blender's own `gpu` module, so Blender compiles it for
+whatever backend it uses: Metal on macOS, Vulkan or OpenGL on Windows and
+Linux. There is nothing to build and no external program.
 
-## Install (Windows, Blender 4.2+)
+## Install (Blender 4.2 or newer, macOS, Windows, Linux)
 
-1. Run `tools\build.bat` in this repository. This builds
-   `build\paintify-stream.exe` (live backend) and `build\gpu-sbr.exe` (standalone
-   renderer). Requires MSVC Build Tools, CMake, Ninja and vcpkg.
-2. Run `python tools\package_addon.py` to make `paintify_gpu.zip`.
-3. In Blender, choose **Edit > Preferences > Add-ons > Install from Disk**, pick
+1. Run `python tools/package_addon.py` to make `paintify_gpu.zip`.
+2. In Blender, choose **Edit > Preferences > Add-ons > Install from Disk**, pick
    `paintify_gpu.zip`, and enable **Paintify Live**.
-4. The add-on defaults to `%USERPROFILE%\paintify-blender\build\paintify-stream.exe`.
-   If your checkout is elsewhere, set **Live GPU renderer** in add-on preferences
-   to its `build\paintify-stream.exe`. Rebuild if you move the repository: the
-   shader path is compiled into the renderer.
 
-## Use
+If you installed an older Paintify Live that used `paintify-stream.exe`,
+remove it first. The renderer path preference is gone.
 
-Open a **3D Viewport**, press **N** for the sidebar, and open **Paintify**. Click
-**Start Live Paint**. Adjust style, curvature, threshold, brush texture, impasto,
-relaxation and opacity while looking at the viewport. **Paint FPS** controls
-the stop-motion cadence; **Resolution** trades detail for speed. The default is
-12 painted frames per second at 50% viewport resolution. Click **Stop Live
-Paint** to remove the overlay.
-The panel shows measured paint FPS while the effect runs.
+## Viewport
 
-The overlay is a preview over one active viewport. It is not a compositor node,
-does not alter Blender's final render, and does not write a video file. The
-viewport is rendered into a smaller offscreen texture, read into memory, sent
-to a persistent GPU renderer process and uploaded back as an overlay. Blender's
-Python GPU buffer conversion and the two transfers may limit actual FPS,
-especially at 1080p or with relaxation; 12 FPS is a target setting rather than
-a benchmark guarantee. The renderer uses OpenGL 4.6 and the `gpu-sbr` shaders.
+Open a **3D Viewport**, press **N** for the sidebar, and open **Paintify**.
+Click **Start Live Paint**. Adjust style, brush size, curvature, threshold,
+brush texture, impasto, relaxation and opacity while looking at the viewport.
+**Paint FPS** sets the stop-motion cadence and **Resolution** trades preview
+detail for speed. The panel shows the measured paint rate.
 
-The Blender 5.2 viewport callback, GPU texture upload, and live renderer
-round trip are tested in an isolated background Blender session. Interactive
-paint rate depends on the viewport and GPU workload.
+In **camera view** the overlay paints exactly the camera frame, through the
+camera's projection at the render's aspect. That is the preview of the
+render. Outside camera view it paints the whole viewport.
 
-Developers can repeat that check with
-`blender --background --factory-startup --python tests/blender_smoke.py` after
-building the renderer.
+## Render
+
+In the **Render** subpanel (also at the bottom of Blender's **Render** menu):
+
+- **Render Painted Image** renders the current frame with the scene's engine,
+  paints it and opens it as the **Paintify Render** image. Save it from the
+  Image Editor.
+- **Render Painted Animation** renders the frame range and writes the scene's
+  output: an image sequence at the output path, or a movie through Blender's
+  own encoder when the output is a video format. Esc cancels.
+
+Renders paint at full render resolution. Brush sizes scale with the frame, so
+a 50% viewport preview and a 4K render get the same strokes relative to the
+frame. The source is the render as the scene's colour management displays it,
+the same image the overlay samples in the viewport. With **Stop-motion
+render** on (default), each painted frame is held for scene FPS / Paint FPS
+frames, as the viewport shows during playback. Turn it off to paint every
+frame. Temporal stroke stability carries over from frame to frame as in the
+viewport.
+
+For the closest match between overlay and render, preview in camera view with
+**Rendered** shading. Solid and Material Preview shading paint what those
+modes show, which differs from the final engine. Movies do not carry the
+scene's audio.
+
+## Develop
+
+- `python -m unittest discover -s tests -p "test_*.py"` runs the pure Python
+  tests. The shader test compiles every stage as strict Vulkan GLSL when
+  `glslangValidator` is installed (`brew install glslang`).
+- `blender --background --factory-startup --python tests/blender_smoke.py`
+  paints, drives the overlay and renders a still, a PNG sequence and an MP4.
+  It also runs under the `bpy` 5.2 module; on Linux wrap it in `xvfb-run`.
+
+`src/`, `shaders/` and `tools/build.bat` are the standalone Windows renderer
+(`gpu-sbr`, OpenGL 4.6). The add-on does not use them. They are the reference
+the add-on's shaders were ported from.

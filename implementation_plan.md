@@ -1,11 +1,12 @@
-# Live viewport rewrite
+# Blender GPU module port and painted renders
 
-- [NEW] `src/stream.cpp`: persistent raw RGBA GPU renderer process.
-- [MODIFY] `CMakeLists.txt`: build the stream renderer beside the existing CLI.
-- [REPLACE] `blender_addon/paintify_gpu/__init__.py`: 3D Viewport overlay and controls.
-- [REPLACE] `blender_addon/paintify_gpu/engine.py` with `stream_bridge.py`: asynchronous frame transport.
-- [MODIFY] `README.md`, `system_architecture.md`, `task.md`: explain live viewport behavior and limits.
-- [REPLACE] bridge tests: protocol framing, validation, row orientation.
+- [NEW] `blender_addon/paintify_gpu/painter.py`, `stages.py`, `shaders/`: the
+  Hertzmann pipeline on Blender's `gpu` module, so macOS (Metal) works.
+- [NEW] `looks.py`, `brushes.py`: styles, frame-relative brush scale, brush tiles.
+- [NEW] `render.py`: painted still and animation operators.
+- [SPLIT] `__init__.py` into `settings.py`, `viewport.py`, `ui.py`.
+- [REMOVE] `stream_bridge.py`, `src/stream.cpp`: the external renderer process.
+- [REPLACE] tests: pure Python, glslang shader compile, Blender smoke test.
 
-Verify the Python tests, C++ build, real frame stream through the GPU backend,
-and Blender registration if an executable is available.
+Verify the Python tests, strict shader compiles, and the smoke test in
+Blender 5.2 (overlay, still, PNG sequence, MP4).
