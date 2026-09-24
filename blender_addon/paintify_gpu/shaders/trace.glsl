@@ -1,7 +1,7 @@
 /* Seeds and traces one stroke per slot: worker.js's cell test followed by a
  * line-for-line port of `makeCurvedStroke`.
  *
- * The standalone renderer compacted seeds with atomics. Blender's Python GPU
+ * The paintify-GPU renderer compacted seeds with atomics. Blender's Python GPU
  * API has no storage buffers, so each pass instead owns exactly one cell of
  * every block of `chunks` consecutive cells, picked by a hashed permutation.
  * That keeps a pass scattered over the whole image, as worker.js's shuffled

@@ -5,8 +5,8 @@
  *   score = A * (Em + w_area - Eg)
  *
  * where A is the stroke's area, Em its mean Lab fit error and Eg the error of
- * the ground (underpaint) beneath it. See shaders/relax.comp in the
- * standalone renderer for the derivation. uRelax.x is the iteration and
+ * the ground (underpaint) beneath it. See shaders/relax.comp in
+ * paintify-GPU for the derivation. uRelax.x is the iteration and
  * uPool.x the number of pooled slots. */
 #define SAMPLE_ROWS 8
 #define SAMPLE_COLS 3

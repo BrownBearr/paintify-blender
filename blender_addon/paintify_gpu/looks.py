@@ -31,7 +31,7 @@ class Style:
     underpaint: str  # "blur" or "average"
 
 
-# Same values as the web presets that the standalone renderer mirrors.
+# Same values as the web presets that paintify-GPU mirrors.
 STYLES = {
     "impressionist": Style((8.0, 4.0, 2.0), 16, 4, 1.0, 0.90, (0.05, 0.10, 0.10), "blur"),
     "expressionist": Style((12.0, 6.0, 3.0), 28, 8, 0.9, 0.95, (0.15, 0.20, 0.15), "blur"),
@@ -107,7 +107,7 @@ def plan_layer(width, height, radius, grid_factor):
 
 
 def brush_rows(radius):
-    """Tile rows in use for a radius (brush_atlas.cpp rowsForRadius)."""
+    """Tile rows in use for a radius (paintify-GPU brush_atlas.cpp rowsForRadius)."""
     return max(8, min(48, int(math.floor(2.0 * max(1.0, radius) + 0.5))))
 
 

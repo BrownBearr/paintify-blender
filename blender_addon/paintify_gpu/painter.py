@@ -1,6 +1,6 @@
 """Hertzmann stroke painter on Blender's `gpu` module.
 
-A port of the standalone renderer (src/pipeline.cpp and shaders/). Blender
+A port of the paintify-GPU renderer (src/pipeline.cpp and shaders/). Blender
 compiles the stages for whichever backend it runs on (Metal on macOS, Vulkan
 or OpenGL elsewhere), so nothing outside Blender is needed. The same Painter
 paints the viewport overlay and final renders, which is what keeps the two

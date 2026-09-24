@@ -1,4 +1,5 @@
-"""Brush tiles, ported from src/brush_atlas.cpp (itself brush-texture.js).
+"""Brush tiles, ported from paintify-GPU's src/brush_atlas.cpp (itself
+brush-texture.js).
 
 One tile per (radius index, variant): an across-width bristle profile times
 low-frequency along-stroke noise, with a slight edge boost. Tiles are stacked

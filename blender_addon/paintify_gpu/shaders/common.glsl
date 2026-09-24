@@ -1,5 +1,5 @@
 /* Helpers shared by every Paintify stage. Ported from shaders/common.glsl of
- * the standalone renderer; names follow PainterlyImageCreatorWeb's worker.js.
+ * paintify-GPU; names follow PainterlyImageCreatorWeb's worker.js.
  *
  * Blender compiles this for OpenGL, Vulkan and Metal, so it sticks to the
  * portable subset: unsigned hash arithmetic, no global const arrays, no

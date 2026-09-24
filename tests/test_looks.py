@@ -16,8 +16,8 @@ from paintify_gpu import brushes, looks  # noqa: E402
 
 
 class BrushTileTests(unittest.TestCase):
-    def test_matches_standalone_renderer(self):
-        # Values printed by src/brush_atlas.cpp makeTiles({8, 4, 2}, 10).
+    def test_matches_paintify_gpu(self):
+        # Values printed by paintify-GPU's src/brush_atlas.cpp makeTiles({8, 4, 2}, 10).
         data, rows = brushes.make_atlas((8.0, 4.0, 2.0))
         self.assertEqual(rows, [16, 8, 8])
         self.assertEqual(len(data), 24 * brushes.TILE_W * brushes.TILE_ROWS_MAX)

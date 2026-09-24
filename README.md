@@ -10,14 +10,22 @@ The painter runs on Blender's own `gpu` module, so Blender compiles it for
 whatever backend it uses: Metal on macOS, Vulkan or OpenGL on Windows and
 Linux. There is nothing to build and no external program.
 
-## Install (Blender 4.2 or newer, macOS, Windows, Linux)
+## Install (Blender 4.2 or newer)
 
-1. Run `python tools/package_addon.py` to make `paintify_gpu.zip`.
-2. In Blender, choose **Edit > Preferences > Add-ons > Install from Disk**, pick
-   `paintify_gpu.zip`, and enable **Paintify Live**.
+Download the zip for your platform from `dist/` (open the file on GitHub, then
+**Download raw file**):
 
-If you installed an older Paintify Live that used `paintify-stream.exe`,
-remove it first. The renderer path preference is gone.
+- macOS: [`dist/paintify_live_mac.zip`](dist/paintify_live_mac.zip)
+- Windows: [`dist/paintify_live_windows.zip`](dist/paintify_live_windows.zip)
+
+Both zips contain the same files; either works on Linux too. Don't unzip it.
+In Blender, choose **Edit > Preferences > Add-ons > Install from Disk**, pick
+the zip, and enable **Paintify Live**. Preferences should show version 0.3.0.
+
+Installing replaces an older Paintify Live in place. If Blender still reports
+`paintify-stream.exe`, an old 0.2.x copy is loaded: uninstall every Paintify
+entry in Add-ons, remove any Script Directory that points at a checkout of this
+repository, restart Blender and install again.
 
 ## Viewport
 
@@ -58,13 +66,14 @@ scene's audio.
 
 ## Develop
 
-- `python -m unittest discover -s tests -p "test_*.py"` runs the pure Python
-  tests. The shader test compiles every stage as strict Vulkan GLSL when
-  `glslangValidator` is installed (`brew install glslang`).
+This repository contains only the add-on (`blender_addon/paintify_gpu/`), its
+tests and the packaging tool. See `CLAUDE.md` for the rules.
+
+- `python tools/package_addon.py` rebuilds both zips in `dist/`. Commit them
+  with any add-on change; `tests/test_dist.py` fails when they are stale.
+- `python -m unittest discover -s tests -p "test_*.py"` runs the tests that
+  don't need Blender. The shader test compiles every stage as strict Vulkan
+  GLSL when `glslangValidator` is installed (`brew install glslang`).
 - `blender --background --factory-startup --python tests/blender_smoke.py`
   paints, drives the overlay and renders a still, a PNG sequence and an MP4.
   It also runs under the `bpy` 5.2 module; on Linux wrap it in `xvfb-run`.
-
-`src/`, `shaders/` and `tools/build.bat` are the standalone Windows renderer
-(`gpu-sbr`, OpenGL 4.6). The add-on does not use them. They are the reference
-the add-on's shaders were ported from.

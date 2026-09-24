@@ -2,9 +2,10 @@
 
 The add-on paints on Blender's `gpu` module. `painter.py` owns the render
 targets and runs the stages; `stages.py` declares each shader's resources and
-`shaders/*.glsl` holds the code, ported from the standalone renderer
-(`src/pipeline.cpp`, `shaders/`). Blender compiles the GLSL for Metal, Vulkan
-or OpenGL, so the same code runs on macOS, Windows and Linux.
+`shaders/*.glsl` holds the code, ported from the paintify-GPU renderer
+(`src/pipeline.cpp` and `shaders/` in that repository). Blender compiles the
+GLSL for Metal, Vulkan or OpenGL, so the same code runs on macOS, Windows and
+Linux.
 
 Per painted frame, all on the GPU with no readback:
 
@@ -21,7 +22,7 @@ Per painted frame, all on the GPU with no readback:
 Blender's Python GPU API has no storage buffers or atomics, so strokes live in
 RGBA32F textures and each pass owns one cell of every block of `passes`
 consecutive cells, picked by a hashed permutation. That replaces the atomic
-seed compaction of the standalone renderer and makes painting deterministic.
+seed compaction of the paintify-GPU renderer and makes painting deterministic.
 Per-layer values travel as push constants; frame settings sit in a uniform
 buffer created once per frame.
 

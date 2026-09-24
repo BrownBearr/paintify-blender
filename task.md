@@ -1,4 +1,0 @@
-- [x] Port the stroke pipeline to Blender's `gpu` module (Metal, Vulkan, OpenGL).
-- [x] Paint the camera frame in camera view so the overlay previews the render.
-- [x] Add painted still, image-sequence and movie render operators.
-- [x] Verify shaders with glslang and the add-on in Blender 5.2.
