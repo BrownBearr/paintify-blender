@@ -41,6 +41,10 @@ Python GPU buffer conversion and the two transfers may limit actual FPS,
 especially at 1080p or with relaxation; 12 FPS is a target setting rather than
 a benchmark guarantee. The renderer uses OpenGL 4.6 and the `gpu-sbr` shaders.
 
-This live integration is currently verified at the protocol and GPU backend
-level. A Blender UI test has not been run on the development machine because
-its Blender executable is missing.
+The Blender 5.2 viewport callback, GPU texture upload, and live renderer
+round trip are tested in an isolated background Blender session. Interactive
+paint rate depends on the viewport and GPU workload.
+
+Developers can repeat that check with
+`blender --background --factory-startup --python tests/blender_smoke.py` after
+building the renderer.

@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Paintify Live",
     "author": "BrownBearr",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Paintify",
     "description": "Live painterly overlay of the current 3D Viewport",
@@ -15,6 +15,7 @@ from pathlib import Path
 
 import bpy
 import gpu
+import numpy as np
 from bpy.props import EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 from gpu_extras.batch import batch_for_shader
 
@@ -105,7 +106,10 @@ def _consume_result():
     _Viewport.result_time = now
     # Pipeline returns top-first; GPUTexture data begins with the bottom row.
     bottom_up = flip_rows(pixels, width, height)
-    data = gpu.types.Buffer("UBYTE", (len(bottom_up),), bottom_up)
+    # Blender 5.2's GPUTexture constructor accepts FLOAT data only, even for
+    # an RGBA8 texture. Vectorize the conversion to keep frame uploads usable.
+    normalized = np.frombuffer(bottom_up, dtype=np.uint8).astype(np.float32) / 255.0
+    data = gpu.types.Buffer("FLOAT", (len(bottom_up),), normalized)
     _Viewport.texture = gpu.types.GPUTexture((width, height), format="RGBA8", data=data)
 
 
@@ -118,7 +122,11 @@ def _draw_overlay():
             _Viewport.busy_capture):
         return
     settings = context.scene.paintify_live
-    _consume_result()
+    try:
+        _consume_result()
+    except Exception as exc:
+        _Viewport.error = f"Overlay upload failed: {exc}"
+        return
     now = time.monotonic()
     if (_Viewport.bridge and not _Viewport.bridge.error and
             now - _Viewport.last_capture >= 1.0 / settings.fps and
@@ -153,6 +161,7 @@ def _draw_overlay():
                 )
                 _Viewport.sequence += 1
                 _Viewport.bridge.submit(width, height, _Viewport.sequence, top_down, look)
+                _Viewport.error = ""
             except Exception as exc:
                 _Viewport.error = str(exc)
             finally:
