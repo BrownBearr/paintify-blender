@@ -151,7 +151,9 @@ class RenderJob:
         scene = self.scene
         scene.frame_set(frame)
         bpy.ops.render.render(write_still=False, scene=scene.name)
-        path = os.path.join(self.tmpdir, "source.png")
+        # A new name per frame: on Windows a virus scanner can still hold the
+        # previous frame's file, and overwriting it would fail.
+        path = os.path.join(self.tmpdir, f"source_{self.index:06d}.png")
         with _PngOutput(scene.render.image_settings):
             _render_result().save_render(filepath=path, scene=scene)
         image = bpy.data.images.load(path, check_existing=False)
@@ -161,6 +163,10 @@ class RenderJob:
             image.pixels.foreach_get(pixels)
         finally:
             bpy.data.images.remove(image)
+        try:
+            os.remove(path)
+        except OSError:
+            pass  # close() removes the whole scratch directory anyway.
         return pixels, width, height
 
     def _paint(self, frame):

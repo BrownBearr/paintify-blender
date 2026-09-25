@@ -20,7 +20,7 @@ Download the zip for your platform from `dist/` (open the file on GitHub, then
 
 Both zips contain the same files; either works on Linux too. Don't unzip it.
 In Blender, choose **Edit > Preferences > Add-ons > Install from Disk**, pick
-the zip, and enable **Paintify Live**. Preferences should show version 0.3.0.
+the zip, and enable **Paintify Live**. Preferences should show version 0.3.1.
 
 Installing replaces an older Paintify Live in place. If Blender still reports
 `paintify-stream.exe`, an old 0.2.x copy is loaded: uninstall every Paintify
