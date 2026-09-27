@@ -6,18 +6,6 @@
  * (i * step) % count; step is coprime to count, so every slot is drawn once
  * in an order decorrelated from position. */
 
-float taper_at(float u, float amt)
-{
-  if (amt <= 0.0) {
-    return 1.0;
-  }
-  float end_frac = 0.06 + 0.30 * amt;
-  float e = min(u, 1.0 - u);
-  float s = clamp(e / end_frac, 0.0, 1.0);
-  s = s * s * (3.0 - 2.0 * s);
-  return (1.0 - 0.45 * amt) + 0.45 * amt * s;
-}
-
 vec2 point_at(int stroke, int i)
 {
   return texelFetch(uVerts, vert_texel(stroke, i), 0).xy;
@@ -38,6 +26,7 @@ void main()
   vTotalLen = 1.0;
   vOpacity = 0.0;
   vTexHash = 0.0;
+  vVis = 1.0;
   if (vc < 2) {
     /* worker.js: fewer than two points draws nothing. */
     gl_Position = vec4(0.0, 0.0, 2.0, 1.0);

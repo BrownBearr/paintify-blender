@@ -25,6 +25,26 @@ ivec2 head_texel(int stroke, int k)
   return ivec2((stroke % STROKES_PER_ROW) * 2 + k, stroke / STROKES_PER_ROW);
 }
 
+/* Paintify Scene keeps its strokes in a store of the same layout, with
+ * (object-space x, y, z, arc length) per vertex and SCENE_HEADS header
+ * texels: (r, g, b, opacity), (vertex count, brush variant, total length,
+ * radius) as painted, (reference colour at the seed, unused) and (radius in
+ * world units, object slot, unused, unused). Lengths are in the pixels of the
+ * frame the stroke was painted in. */
+#define SCENE_HEADS 4
+#define SCAN_BLOCK 64
+
+ivec2 shead_texel(int stroke, int k)
+{
+  return ivec2((stroke % STROKES_PER_ROW) * SCENE_HEADS + k, stroke / STROKES_PER_ROW);
+}
+
+/* One value per stroke slot, for the flag and block-sum lists. */
+ivec2 list_texel(int k)
+{
+  return ivec2(k % STROKES_PER_ROW, k / STROKES_PER_ROW);
+}
+
 uint hash_u(uint x)
 {
   x ^= x >> 16u;
@@ -83,4 +103,17 @@ vec3 rgb_to_lab(vec3 c)
                step(vec3(0.008856), t));
   return vec3((116.0 * f.y - 16.0) * 2.55, 500.0 * (f.x - f.y) + 128.0,
               200.0 * (f.y - f.z) + 128.0);
+}
+
+/* Width along a stroke: brush ends thin out when brush texture is on. */
+float taper_at(float u, float amt)
+{
+  if (amt <= 0.0) {
+    return 1.0;
+  }
+  float end_frac = 0.06 + 0.30 * amt;
+  float e = min(u, 1.0 - u);
+  float s = clamp(e / end_frac, 0.0, 1.0);
+  s = s * s * (3.0 - 2.0 * s);
+  return (1.0 - 0.45 * amt) + 0.45 * amt * s;
 }

@@ -2,7 +2,10 @@
 
 Paintify Live paints **whatever the active 3D Viewport shows** as a live
 overlay, and paints **final renders** (stills, image sequences and movies) the
-same way. It uses the GPU Hertzmann stroke pipeline from
+same way. With **Paintify Scene** the brushwork belongs to the 3D objects
+instead of the screen: a stroke painted on an object stays on its surface as
+the object turns or the camera moves. It uses the GPU Hertzmann stroke
+pipeline from
 [paintify-GPU](https://github.com/BrownBearr/paintify-GPU): curved brush
 strokes, relaxation, brush texture and impasto.
 
@@ -20,7 +23,7 @@ Download the zip for your platform from `dist/` (open the file on GitHub, then
 
 Both zips contain the same files; either works on Linux too. Don't unzip it.
 In Blender, choose **Edit > Preferences > Add-ons > Install from Disk**, pick
-the zip, and enable **Paintify Live**. Preferences should show version 0.3.1.
+the zip, and enable **Paintify Live**. Preferences should show version 0.4.0.
 
 Installing replaces an older Paintify Live in place. If Blender still reports
 `paintify-stream.exe`, an old 0.2.x copy is loaded: uninstall every Paintify
@@ -38,6 +41,35 @@ detail for speed. The panel shows the measured paint rate.
 In **camera view** the overlay paints exactly the camera frame, through the
 camera's projection at the render's aspect. That is the preview of the
 render. Outside camera view it paints the whole viewport.
+
+## Paintify Scene: strokes that stay on objects
+
+**Paint space** in the panel chooses where strokes live:
+
+- **Screen** (default) paints the image every frame, as before. Temporal
+  stability keeps still regions, but strokes on a moving object are redrawn
+  and swim across it.
+- **Object** attaches each stroke on an object to that object's surface.
+  From then on it is redrawn where that surface is: it turns with the object,
+  moves with the camera, hides behind whatever passes in front and comes back
+  when that has moved on. Surface that turns into view for the first time is
+  painted then, and kept. The background (world) is painted in screen space.
+- **World** attaches strokes to world positions instead: they stay put as the
+  camera moves, and a moving object slides under them.
+
+**Relight strokes** (on by default) recolours attached strokes from the
+current frame, so shading and highlights follow the light while the strokes
+stay put. Off keeps the colour each stroke was painted with, like paint on a
+model. **Repaint Scene Strokes** forgets the attached strokes and lays them
+down again from the current view; changing the style or any stroke setting
+does the same. The panel shows how many strokes are attached.
+
+Renders work the same way: each render job attaches strokes from its first
+frame and carries them through the frame range. Anchors are points in an
+object's own space, so rigid motion (object, parent and camera animation) is
+followed exactly; a deforming mesh (armature, shape keys, simulation) is not
+followed yet. Instanced geometry (particles, collection and Geometry Nodes
+instances) hides strokes behind it but is painted in screen space.
 
 ## Render
 
@@ -75,5 +107,6 @@ tests and the packaging tool. See `CLAUDE.md` for the rules.
   don't need Blender. The shader test compiles every stage as strict Vulkan
   GLSL when `glslangValidator` is installed (`brew install glslang`).
 - `blender --background --factory-startup --python tests/blender_smoke.py`
-  paints, drives the overlay and renders a still, a PNG sequence and an MP4.
-  It also runs under the `bpy` 5.2 module; on Linux wrap it in `xvfb-run`.
+  paints, drives the overlay in Screen, Object and World space and renders a
+  still, PNG sequences and an MP4. It also runs under the `bpy` 5.2 module; on
+  Linux wrap it in `xvfb-run`.

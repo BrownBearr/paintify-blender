@@ -18,6 +18,14 @@ class PAINTIFY_PT_live(bpy.types.Panel):
         running = viewport.running()
         layout.operator("paintify.toggle_live", text="Stop Live Paint" if running else "Start Live Paint",
                         icon="PAUSE" if running else "PLAY")
+        layout.prop(settings, "space")
+        if settings.space != "SCREEN":
+            box = layout.column(align=True)
+            box.prop(settings, "relight")
+            box.operator("paintify.reset_scene", icon="FILE_REFRESH")
+            strokes, full = viewport.scene_status()
+            if running and strokes:
+                box.label(text=f"Scene strokes: {strokes:,}" + (" (full)" if full else ""))
         layout.prop(settings, "preset")
         layout.prop(settings, "brush_size")
         layout.prop(settings, "threshold")

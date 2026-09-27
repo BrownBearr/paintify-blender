@@ -54,6 +54,11 @@ void main()
     return;
   }
   vec4 cell = texelFetch(uCells, ivec2(cell_index % grid_w, cell_index / grid_w), 0);
+  /* A cell with nothing to seed (masked, or no hole in a scene layer). */
+  if (cell.y < 0.0) {
+    write_empty(dst);
+    return;
+  }
 
   /* worker.js: the coarsest layer always paints so the canvas is covered;
    * finer layers paint only where the error exceeds the threshold. */
