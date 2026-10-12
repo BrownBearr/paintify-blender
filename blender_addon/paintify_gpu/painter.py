@@ -18,6 +18,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 
 from . import brushes, stages
+from .brushkit import style_values, STYLE_INDEX
 from .looks import brush_rows, draw_order_step, layer_radii, plan_layer
 
 MAX_VERTS = 33
@@ -27,13 +28,6 @@ MAX_STROKES = STROKES_PER_ROW * MAX_STORE_ROWS
 MAX_SIDE = 8192
 GROUP = 16
 
-# Standalone renderer defaults that the panel does not expose.
-TEXTURE_TAPER = 0.4
-LIGHT_ANGLE = 45.0
-RELAX_AREA_WEIGHT = 0.06
-RELAX_MOVE_SCALE = 0.8
-RELAX_CANDIDATES = 6.0
-
 _shaders = None
 
 
@@ -41,8 +35,11 @@ def _compute(name):
     _file, samplers, images, push, uses_params, group = stages.COMPUTE[name]
     info = gpu.types.GPUShaderCreateInfo()
     if uses_params:
-        info.typedef_source(stages.PARAMS_STRUCT)
+        info.typedef_source(stages.PARAMS_STRUCT +
+                            (stages.STYLE_STRUCT if name in stages.STYLE_STAGES else ""))
         info.uniform_buf(0, "PaintParams", "params")
+    if name in stages.STYLE_STAGES:
+        info.uniform_buf(1, "BrushkitStyle", "brushkit")
     for slot, sampler in enumerate(samplers):
         info.sampler(slot, "FLOAT_2D", sampler)
     for slot, (fmt, image, access) in enumerate(images):
@@ -62,8 +59,9 @@ def _stroke_shader():
     for kind, name in spec["flat"]:
         iface.flat(kind, name)
     info = gpu.types.GPUShaderCreateInfo()
-    info.typedef_source(stages.PARAMS_STRUCT)
+    info.typedef_source(stages.PARAMS_STRUCT + stages.STYLE_STRUCT)
     info.uniform_buf(0, "PaintParams", "params")
+    info.uniform_buf(1, "BrushkitStyle", "brushkit")
     for slot, sampler in enumerate(spec["samplers"]):
         info.sampler(slot, "FLOAT_2D", sampler)
     for kind, name in spec["push"]:
@@ -84,6 +82,7 @@ class _Shaders:
         for name in stages.COMPUTE:
             setattr(self, name, _compute(name))
         self.stroke = _stroke_shader()
+        self.with_style = tuple(getattr(self, name) for name in stages.STYLE_STAGES)
         self.strip = batch_for_shader(self.stroke, "TRI_STRIP",
                                       {"vid": [float(i) for i in range(MAX_VERTS * 2)]})
 
@@ -113,6 +112,15 @@ def texture_from_pixels(pixels, width, height):
     return gpu.types.GPUTexture((width, height), format="RGBA16F", data=data)
 
 
+def read_texture_pixels(texture):
+    import numpy as np
+    data = texture.read()
+    # Blender 5.1 advertises column-major strides for multidimensional Buffers.
+    # Flatten before NumPy sees them; the texture bytes themselves are row-major.
+    data.dimensions = texture.width * texture.height * 4
+    return np.array(data, dtype=np.float32, copy=True).reshape(texture.height, texture.width, 4)
+
+
 class Painter:
     """Owns the render targets and temporal state for one stream of frames:
     one Painter for the viewport overlay, a separate one per render job."""
@@ -132,11 +140,16 @@ class Painter:
         self.size = (0, 0)
         self.canvas = None
         self.params = None
+        self.style_params = None
+        self.output = None
+        self.render_count = 0
+        self._vortex = None
 
     def reset(self):
         """Forget the previous frame, so the next paint starts from scratch."""
         self._have_prev = False
         self._prev_key = None
+        self._vortex = None
 
     # --- resources ----------------------------------------------------------
 
@@ -144,6 +157,8 @@ class Painter:
         tex = self._textures.get(key)
         if tex is None or (tex.width, tex.height) != tuple(size) or tex.format != fmt:
             tex = gpu.types.GPUTexture(size, format=fmt)
+            if hasattr(tex, "filter_mode"):
+                tex.filter_mode(True)
             self._textures[key] = tex
         return tex
 
@@ -164,6 +179,13 @@ class Painter:
         self.height = t("height", size, "RGBA16F")
         self.prev_canvas = t("prev_canvas", size, "RGBA16F")
         self.under = t("under", size, "RGBA16F")
+        self.tooth = t("tooth", size, "R16F")
+        self.snap = t("snap", size, "RGBA16F")
+        self.flat = t("flat", size, "RGBA16F")
+        self.final = t("final", size, "RGBA16F")
+        self.post_tmp = t("post_tmp", size, "RGBA16F")
+        self.field_tmp = t("field_tmp", size, "RGBA16F")
+        self.tensor = t("tensor", size, "RGBA16F")
         if self._framebuffer_key != size:
             self._framebuffer = gpu.types.GPUFrameBuffer(color_slots=(self.canvas, self.height))
             self._framebuffer_key = size
@@ -176,10 +198,10 @@ class Painter:
             self._heads = gpu.types.GPUTexture((STROKES_PER_ROW * 2, rows), format="RGBA32F")
             self._store_rows = rows
 
-    def _ensure_atlas(self, radii):
-        rows = tuple(brush_rows(r) for r in radii)
+    def _ensure_atlas(self, radii, density=10.0):
+        rows = (tuple(brush_rows(r) for r in radii), density)
         if self._atlas_key != rows:
-            data, used = brushes.make_atlas(radii)
+            data, used = brushes.make_atlas(radii, density)
             height = brushes.TILE_ROWS_MAX * brushes.VARIANTS * len(radii)
             buf = gpu.types.Buffer("FLOAT", len(data), data)
             self._atlas = gpu.types.GPUTexture((brushes.TILE_W, height), format="R32F", data=buf)
@@ -196,6 +218,8 @@ class Painter:
             shader.image(name, tex)
         if params:
             shader.uniform_block("params", self.params)
+        if shader in shaders().with_style:
+            shader.uniform_block("brushkit", self.style_params)
         for name, value in ints:
             shader.uniform_int(name, value)
         for name, value in floats:
@@ -227,6 +251,79 @@ class Painter:
                   [("uMode", 1), ("uSize", tiles)])
         self._copy(total, self.canvas, mode=3)
 
+    def _flow(self, look):
+        w, h = self.size
+        s = shaders()
+        pyramid = []
+        prev, cur = self.prev_src, self.src
+        for level in range(1, look.flow_levels + 2):
+            size = (max(1, w >> level), max(1, h >> level))
+            targets = []
+            for name, source in (("prev", prev), ("cur", cur)):
+                target = self._texture(("luma", name, level), size, "RGBA16F")
+                self._run(s.downsample, _groups(*size), [("uIn", source)], [("uOut", target)],
+                          [("uSize", size), ("uLuma", int(level == 1))])
+                targets.append(target)
+            prev, cur = targets
+            pyramid.append(targets)
+        size = (max(1, w // 4), max(1, h // 4))
+        flow = self._texture("flow", size, "RG16F")
+        scratch = self._texture("flow_scratch", size, "RG16F")
+        dummy = self._texture("luma_dummy", (1, 1), "R16F")
+        flow.clear(format="FLOAT", value=(0.0, 0.0))
+        for level in range(look.flow_levels + 1, 1, -1):
+            prev, cur = pyramid[level - 1]
+            for iteration in range(look.flow_iterations + 1):
+                self._run(s.flow, _groups(*size), [("uLumaPrev", prev), ("uLumaCur", cur),
+                          ("uFlowIn", flow), ("uSrcRgba", self.src)],
+                          [("uFlowOut", scratch), ("uLumaOut", dummy)],
+                          [("uPass", 2 if iteration == look.flow_iterations else 1),
+                           ("uLevel", level), ("uFlowSize", size), ("uWindow", 2)], params=True)
+                flow, scratch = scratch, flow
+        return flow
+
+    def _track_vortex(self, block, smooth):
+        import math
+        import numpy as np
+        source = self.src
+        levels = max(0, int(math.floor(math.log2(max(self.size) / 16))))
+        for level in range(levels):
+            size = (max(1, source.width//2), max(1, source.height//2))
+            target = self._texture(("vortex", level), size, "RGBA16F")
+            self._run(shaders().downsample, _groups(*size), [("uIn", source)],
+                      [("uOut", target)], [("uSize", size), ("uLuma", 0)])
+            source = target
+        pixels = read_texture_pixels(source)
+        y, x = np.mgrid[:source.height, :source.width]
+        u, v = (x+.5)/source.width, (y+.5)/source.height
+        brightness = pixels[..., :3] @ np.array([.299, .587, .114]) - .15*((u-.5)**2+(v-.5)**2)
+        py, px = np.unravel_index(brightness.argmax(), brightness.shape)
+        center = np.array([u[py,px], v[py,px]])
+        self._vortex = self._vortex + .08*(center-self._vortex) if smooth and self._vortex is not None else center
+        values = list(block)
+        values[STYLE_INDEX["vortexX"]:STYLE_INDEX["vortexY"]+1] = (self._vortex[0], 1-self._vortex[1])
+        return tuple(values)
+
+    def _maximum(self, source, mode):
+        level = 0
+        while True:
+            size = (max(1, -(-source.width // 16)), max(1, -(-source.height // 16)))
+            target = self._texture(("maximum", level), size, "RGBA32F")
+            self._run(shaders().max_reduce, _groups(*size), [("uIn", source)],
+                      [("uOut", target)], [("uMode", mode)])
+            source, mode, level = target, 1, level+1
+            if size == (1, 1):
+                break
+        return source
+
+    def _etf(self, iterations):
+        w, h = self.size
+        source = self._maximum(self.grad, 0)
+        for _ in range(iterations):
+            self._run(shaders().etf, _groups(w, h), [("uField", self.grad), ("uMax", source)],
+                      [("uOut", self.field_tmp)], params=True)
+            self._copy(self.field_tmp, self.grad)
+
     def _draw(self, first, count, layer):
         if count <= 0:
             return
@@ -246,7 +343,10 @@ class Painter:
             s.stroke.uniform_sampler("uVerts", self._verts)
             s.stroke.uniform_sampler("uHeads", self._heads)
             s.stroke.uniform_sampler("uBrush", self._atlas)
+            s.stroke.uniform_sampler("uTooth", self.tooth)
+            s.stroke.uniform_sampler("uSnap", self.snap)
             s.stroke.uniform_block("params", self.params)
+            s.stroke.uniform_block("brushkit", self.style_params)
             s.stroke.uniform_int("uDraw", (first, count, draw_order_step(count), 0))
             s.stroke.uniform_float("uTex", tex)
             s.strip.draw_instanced(s.stroke, instance_start=0, instance_count=count)
@@ -255,16 +355,24 @@ class Painter:
 
     # --- the frame ----------------------------------------------------------
 
-    def _make_params(self, look, width, height, frame):
+    def _make_params(self, look, width, height, frame, layer=0):
         style = look.style
+        core = [look.threshold, min(style.max_len, MAX_VERTS - 1), style.min_len,
+                look.curvature, style.opacity, style.grid_factor]
+        if layer < len(look.layer_specs):
+            import math
+            for index, value in enumerate(look.layer_specs[layer]):
+                if math.isfinite(value):
+                    core[(1, 2, 0, 3, 4, 5)[index]] = value
         values = (
             width, height, 1.0 / width, 1.0 / height,
-            look.threshold, min(style.max_len, MAX_VERTS - 1), style.min_len, look.curvature,
-            style.opacity, look.temporal_diff, 0.0, float(frame),
-            style.jitter[0], style.jitter[1], style.jitter[2], 0.0,
-            0.0, 0.0, look.brush_texture, TEXTURE_TAPER,
-            look.impasto, look.impasto_light, LIGHT_ANGLE, 0.0,
-            RELAX_AREA_WEIGHT, RELAX_MOVE_SCALE, RELAX_CANDIDATES, 0.0,
+            *core[:4],
+            core[4], look.temporal_diff, look.jitter_per_frame, float(frame),
+            *style.jitter, look.size_jitter,
+            look.angle_jitter, look.opacity_jitter, look.brush_texture, look.texture_taper,
+            look.impasto, look.impasto_light, look.light_angle, look.dry_brush,
+            look.relax_area, look.relax_move, look.relax_candidates, look.relax_remove,
+            layer, look.etf_radius, look.fresh_paint, 0.0,
         )
         self.params = gpu.types.GPUUniformBuf(gpu.types.Buffer("FLOAT", len(values), values))
 
@@ -282,11 +390,24 @@ class Painter:
         style = look.style
         radii = layer_radii(style, scale)
         self._radii = radii
-        key = (look, radii)
+        block = style_values(look, scale, frame)
+        animated = (look.jitter_per_frame > .5 or block[STYLE_INDEX["rain"]] > 0 or
+                    block[STYLE_INDEX["temporalRefresh"]] > 0)
+        key = (look.cache_key, radii, frame if animated else 0)
         carried = self.size == (width, height) and self._have_prev
+        if carried and self._prev_key == key and self.output is not None:
+            self._copy(source, self.post_tmp, mode=0)
+            self._run(s.errmap, _groups(width, height), [("uA", self.post_tmp), ("uB", self.src)],
+                      [("uOut", self.diff)], [("uMode", 1), ("uSize", (width, height))])
+            maximum = self._maximum(self.diff, 1)
+            if read_texture_pixels(maximum)[0, 0, 0] == 0:
+                return self.output
         self._resize(width, height)
-        use_temporal = temporal and carried and self._prev_key == key and look.temporal_diff > 0
-        self._ensure_atlas(radii)
+        use_temporal = (temporal and carried and self._prev_key[:2] == key[:2]
+                        and look.temporal_diff > 0)
+        self.render_count += 1
+        self._ensure_atlas(radii, look.bristle_density)
+        self.style_params = gpu.types.GPUUniformBuf(gpu.types.Buffer("FLOAT", len(block), block))
         self._make_params(look, width, height, frame)
         w, h = width, height
         size_px = ("uSize", (w, h))
@@ -295,35 +416,94 @@ class Painter:
         if carried:
             self._copy(self.src, self.prev_src)
         self._copy(source, self.src, mode=0)
+        if block[0] > .5 and block[STYLE_INDEX["autoVortex"]] > .5:
+            block = self._track_vortex(block, use_temporal)
+            self.style_params = gpu.types.GPUUniformBuf(gpu.types.Buffer("FLOAT", len(block), block))
+        if block[0] > 0.5:
+            self._run(s.support, _groups(w, h), images=[("uTooth", self.tooth)], params=True)
+        else:
+            self.tooth.clear(format="FLOAT", value=(0.5,))
 
         # Underpaint: last frame's paint, the coarsest blur, or the mean.
         if use_temporal:
-            self._copy(self.prev_canvas, self.canvas)
-            self._run(s.errmap, _groups(w, h), [("uA", self.src), ("uB", self.prev_src)],
-                      [("uOut", self.diff)], [("uMode", 1), size_px])
+            flow = (self._flow(look) if look.flow_levels > 0 else
+                    self._texture("flow_zero", (1, 1), "RG16F"))
+            if look.flow_levels == 0:
+                flow.clear(format="FLOAT", value=(0.0, 0.0))
+                self._copy(self.prev_canvas, self.canvas)
+            self._blur(self.src, self.ref, max(0.1, radii[0] * .5))
+            samplers = [("uIn", self.ref), ("uSrc", self.src), ("uPrevSrc", self.prev_src),
+                        ("uFlow", flow), ("uPrevCanvas", self.prev_canvas)]
+            images = [("uCanvas", self.canvas), ("uDiff", self.diff)]
+            for mode in ((3, 2) if look.flow_levels > 0 else (2,)):
+                self._run(s.canvas, _groups(w, h), samplers, images,
+                          [("uPass", mode), ("uUseFlow", int(look.flow_levels > 0))],
+                          [("uFreshPaint", look.fresh_paint), ("uFill", (1.0, 1.0, 1.0))],
+                          params=True)
         elif style.underpaint == "average":
             self._mean_fill()
+        elif style.underpaint == "none":
+            self.canvas.clear(format="FLOAT", value=(1.0, 1.0, 1.0, 1.0))
         else:
             self._blur(self.src, self.ref, max(0.1, radii[0] * 0.5))
             self._copy(self.ref, self.canvas, mode=0)
+        flat_ground = block[0] > .5 and block[STYLE_INDEX["groundMode"]] > 1.5
+        flat_valid = block[0] > .5 and (flat_ground or any(block[STYLE_INDEX[name]] > 0 for name in
+                                      ("watercolor", "outline", "halftone", "bokashi")))
+        if flat_valid:
+            for stage in (0, 1):
+                self._run(s.flat, _groups(w, h), [("uSrc", self.src)],
+                          [("uFlat", self.flat), ("uCanvas", self.post_tmp)],
+                          [("uPass", stage)], params=True)
+            if flat_ground:
+                self._copy(self.post_tmp, self.canvas)
+        if not flat_ground and not use_temporal and block[0] > .5 and block[STYLE_INDEX["groundMode"]] > 0.5:
+            self._copy(self.canvas, self.post_tmp)
+            self._run(s.ground, _groups(w, h), [("uIn", self.post_tmp)],
+                      [("uOut", self.canvas)], params=True)
         self.height.clear(format="FLOAT", value=(0.0, 0.0, 0.0, 0.0))
 
-        plans = [plan_layer(w, h, r, style.grid_factor) for r in radii]
+        plans = [plan_layer(w, h, r, (look.layer_specs[i][5]
+                  if i < len(look.layer_specs) and look.layer_specs[i][5] == look.layer_specs[i][5]
+                  else style.grid_factor), look.passes) for i, r in enumerate(radii)]
         pool_size = sum(p.passes * p.slots for p in plans)
-        use_pool = 0 < look.relax and pool_size <= MAX_STROKES
+        flat_only = block[0] > .5 and block[STYLE_INDEX["strokesOff"]] > .5
+        use_pool = 0 < look.relax and not flat_only and pool_size <= MAX_STROKES
+        if look.relax > 0 and not flat_only and not use_pool:
+            raise ValueError("Relaxation exceeds the stroke budget; raise Brush size or lower resolution")
         if use_pool:
             self._copy(self.canvas, self.under)
         strokes = pool_size if use_pool else max(p.slots for p in plans)
         if strokes > MAX_STROKES:
             raise ValueError("Too many strokes for this size; raise Brush size")
         self._ensure_store(strokes)
+        if flat_only:
+            self._blur(self.src, self.ref, max(.1, radii[0] * .5))
+            self._run(s.sobel, _groups(w, h), [("uRef", self.ref)], [("uOut", self.grad)], [size_px])
 
         regions = []
         next_slot = 0
         for layer, plan in enumerate(plans):
+            if flat_only:
+                break
+            self._make_params(look, w, h, frame, layer)
+            self._copy(self.canvas, self.snap)
             self._blur(self.src, self.ref, max(0.1, plan.radius * 0.5))
             self._run(s.sobel, _groups(w, h), [("uRef", self.ref)], [("uOut", self.grad)],
                       [size_px])
+            if look.tensor_sigma > 0:
+                self._run(s.features, _groups(w, h), [("uRef", self.ref), ("uTensor", self.tensor)],
+                          [("uOut", self.field_tmp)], [("uPass", 1)], params=True)
+                self._blur(self.field_tmp, self.tensor, look.tensor_sigma * scale)
+                self._run(s.features, _groups(w, h), [("uRef", self.ref), ("uTensor", self.tensor)],
+                          [("uOut", self.grad)], [("uPass", 2)], params=True)
+            if look.etf > 0:
+                self._etf(look.etf)
+            if block[0] > 0.5 and (block[STYLE_INDEX["fieldMode"]] > 0 or
+                                   block[STYLE_INDEX["minFieldMag"]] > 0):
+                self._run(s.stylefield, _groups(w, h), [("uGrad", self.grad)],
+                          [("uOut", self.field_tmp)], params=True)
+                self._copy(self.field_tmp, self.grad)
             # Error once per layer against the canvas before this layer paints,
             # as worker.js builds `err` before its cell loop.
             self._run(s.errmap, _groups(w, h), [("uA", self.ref), ("uB", self.canvas)],
@@ -351,16 +531,18 @@ class Painter:
                     next_slot += plan.slots
 
         if use_pool:
-            for iteration in range(look.relax):
+            for step in range(look.relax * look.relax_subpasses):
+                iteration, subpass = divmod(step, look.relax_subpasses)
                 self._run(s.relax, (-(-next_slot // 64), 1, 1),
                           [("uSrc", self.src), ("uGround", self.under)],
                           [("uVerts", self._verts), ("uHeads", self._heads)],
-                          [("uPool", (next_slot, 0, 0, 0))],
+                          [("uPool", (next_slot, subpass, look.relax_subpasses, 0))],
                           [("uRelax", (float(iteration), 0.0, 0.0, 0.0))], params=True)
                 # A blended stroke cannot be taken back, so repaint the pool.
                 self._copy(self.under, self.canvas)
                 self.height.clear(format="FLOAT", value=(0.0, 0.0, 0.0, 0.0))
                 for first, count, layer in regions:
+                    self._make_params(look, w, h, frame, layer)
                     self._draw(first, count, layer)
 
         if look.impasto_light > 0.0:
@@ -368,13 +550,31 @@ class Painter:
                       [("uCanvas", self.canvas)], [size_px], params=True)
 
         self._copy(self.canvas, self.prev_canvas)
+        self.output = self.canvas
+        if block[0] > 0.5:
+            color = self.canvas
+            if block[STYLE_INDEX["licStrength"]] > 0 or block[STYLE_INDEX["watercolor"]] > 0:
+                self._run(s.post, _groups(w, h), [("uColor", self.canvas), ("uGrad", self.grad),
+                          ("uFlatS", self.flat), ("uToothS", self.tooth), ("uSrc", self.src)],
+                          [("uOut", self.post_tmp)],
+                          [("uPass", 1 if block[STYLE_INDEX["watercolor"]] > 0 else 0),
+                           ("uFlatValid", int(flat_valid))], params=True)
+                color = self.post_tmp
+            self._copy(color, self.final)
+            if block[STYLE_INDEX["finish"]] > 0:
+                self._run(s.finish, _groups(w, h), [("uColor", color),
+                          ("uHeight", self.height), ("uTooth", self.tooth)],
+                          [("uOut", self.final)], params=True)
+            self._run(s.post, _groups(w, h), [("uColor", self.canvas), ("uGrad", self.grad),
+                      ("uFlatS", self.flat), ("uToothS", self.tooth), ("uSrc", self.src)],
+                      [("uOut", self.final)], [("uPass", 2), ("uFlatValid", int(flat_valid))],
+                      params=True)
+            self.output = self.final
         self._have_prev = True
         self._prev_key = key
-        return self.canvas
+        return self.output
 
     def read_pixels(self):
         """The canvas as a float32 NumPy array (height, width, 4), bottom row
         first."""
-        import numpy as np
-
-        return np.array(self.canvas.read(), dtype=np.float32, copy=True)
+        return read_texture_pixels(self.output)

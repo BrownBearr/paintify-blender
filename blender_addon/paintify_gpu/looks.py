@@ -3,8 +3,9 @@
 Pure Python so it can be tested without Blender.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import math
+from .brushkit import RADIUS_SETS
 
 # Brush radii are defined for an image whose geometric mean side is this many
 # pixels (800x450). Everything else scales with sqrt(width * height), so a
@@ -65,10 +66,66 @@ class Look:
     relax: int = 0
     temporal_diff: float = 12.0
     brush_size: float = 1.0
+    brush_family: str = "none"
+    style_block: tuple = ()
+    radii: tuple = ()
+    layer_specs: tuple = ()
+    max_length: float = None
+    min_length: float = None
+    grid_factor: float = None
+    stroke_opacity: float = None
+    underpaint: str = ""
+    jitter_hue: float = None
+    jitter_sat: float = None
+    jitter_val: float = None
+    size_jitter: float = 0.0
+    angle_jitter: float = 0.0
+    opacity_jitter: float = 0.0
+    texture_taper: float = 0.4
+    dry_brush: float = 0.0
+    light_angle: float = 45.0
+    jitter_per_frame: float = 0.0
+    tensor_sigma: float = 0.0
+    etf: int = 0
+    etf_radius: float = 5.0
+    flow_levels: int = 0
+    flow_iterations: int = 3
+    fresh_paint: float = 0.0
+    bristle_density: float = 10.0
+    passes: int = 8
+    relax_area: float = 0.06
+    relax_move: float = 0.8
+    relax_candidates: int = 6
+    relax_remove: float = 0.0
+    relax_subpasses: int = 1
+
+    @property
+    def cache_key(self):
+        # NaN means "use the global value" in imported per-layer settings.
+        # Distinct NaN objects must compare as the same setting across frames.
+        layers = tuple(tuple(None if math.isnan(v) else v for v in layer)
+                       for layer in self.layer_specs)
+        return tuple(layers if f.name == "layer_specs" else getattr(self, f.name)
+                     for f in fields(self))
 
     @property
     def style(self):
-        return STYLES[self.preset]
+        legacy = STYLES.get(self.preset, STYLES["impressionist"])
+        modern = self.preset in RADIUS_SETS
+        def value(name, fallback):
+            v = getattr(self, name)
+            return fallback if v is None else v
+        return Style(
+            self.radii or RADIUS_SETS.get(self.preset, legacy.radii),
+            value("max_length", 16 if modern else legacy.max_len),
+            value("min_length", 4 if modern else legacy.min_len),
+            value("grid_factor", 1 if modern else legacy.grid_factor),
+            value("stroke_opacity", 0.9 if modern else legacy.opacity),
+            (value("jitter_hue", 0.05 if modern else legacy.jitter[0]),
+             value("jitter_sat", 0.10 if modern else legacy.jitter[1]),
+             value("jitter_val", 0.10 if modern else legacy.jitter[2])),
+            self.underpaint or ("blur" if modern else legacy.underpaint),
+        )
 
 
 def stroke_scale(width, height, brush_size=1.0):
@@ -96,13 +153,13 @@ class LayerPlan:
         return self.cells_x * self.cells_y
 
 
-def plan_layer(width, height, radius, grid_factor):
+def plan_layer(width, height, radius, grid_factor, passes=MIN_PASSES):
     # worker.js: grid = max(1, round(radius * gridFactor)).
     grid = max(1, int(math.floor(radius * grid_factor + 0.5)))
     cells_x = -(-width // grid)
     cells_y = -(-height // grid)
     cells = cells_x * cells_y
-    passes = min(MAX_PASSES, max(MIN_PASSES, -(-cells // PASS_CAPACITY)))
+    passes = min(MAX_PASSES, max(1, passes, -(-cells // PASS_CAPACITY)))
     return LayerPlan(radius, grid, cells_x, cells_y, passes, -(-cells // passes))
 
 

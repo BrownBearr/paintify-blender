@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Paintify Live",
     "author": "BrownBearr",
-    "version": (0, 3, 1),
+    "version": (0, 4, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Paintify",
     "description": "Live painterly overlay of the 3D Viewport, and painted renders that match it",
@@ -13,16 +13,20 @@ bl_info = {
 import bpy
 from bpy.props import PointerProperty
 
-from . import painter, render, settings, ui, viewport
+from . import look_files, painter, render, settings, ui, viewport
 
 CLASSES = (
+    settings.PAINTIFY_Pigment,
     settings.PAINTIFY_LiveSettings,
+    look_files.PAINTIFY_OT_load_look,
+    look_files.PAINTIFY_OT_save_look,
+    look_files.PAINTIFY_OT_global_layers,
+    look_files.PAINTIFY_OT_palette,
     viewport.PAINTIFY_OT_toggle,
     render.PAINTIFY_OT_render_image,
     render.PAINTIFY_OT_render_animation,
     ui.PAINTIFY_PT_live,
-    ui.PAINTIFY_PT_render,
-)
+) + ui.LOOK_PANELS
 
 
 def register():
