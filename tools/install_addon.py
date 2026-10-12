@@ -23,6 +23,6 @@ addon_utils.enable("paintify_gpu", default_set=True, persistent=True)
 assert addon_utils.check("paintify_gpu") == (True, True)
 assert hasattr(bpy.types.Scene, "paintify_live")
 import paintify_gpu
-assert paintify_gpu.bl_info["version"] == (0, 4, 2), paintify_gpu.__file__
+assert paintify_gpu.bl_info["version"] == (0, 4, 3), paintify_gpu.__file__
 bpy.ops.wm.save_userpref()
 print("PAINTIFY_INSTALLED", paintify_gpu.bl_info["version"], paintify_gpu.__file__)

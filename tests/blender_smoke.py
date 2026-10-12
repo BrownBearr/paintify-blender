@@ -142,7 +142,10 @@ def check_viewport(area, region):
     assert "paintify_gpu" in bpy.context.preferences.addons
     preferences = bpy.context.preferences.addons["paintify_gpu"].preferences
     assert preferences.bl_rna.identifier == "PAINTIFY_LIVE_preferences"
-    assert bpy.types.PAINTIFY_LIVE_PT_render_properties.bl_context == "render"
+    assert not hasattr(bpy.types, "PAINTIFY_LIVE_PT_render_properties")
+    assert bpy.types.PAINTIFY_LIVE_PT_playback.bl_space_type == "VIEW_3D"
+    assert bpy.types.PAINTIFY_LIVE_PT_playback.bl_region_type == "UI"
+    assert "HIDE_HEADER" in bpy.types.PAINTIFY_LIVE_PT_playback.bl_options
     class LayoutRecorder:
         def __init__(self):
             self.buttons = []
@@ -158,7 +161,8 @@ def check_viewport(area, region):
             pass
 
     for panel in (paintify_gpu.ui.PAINTIFY_LIVE_preferences,
-                  paintify_gpu.ui.PAINTIFY_LIVE_PT_render_properties):
+                  paintify_gpu.ui.PAINTIFY_LIVE_PT_playback,
+                  paintify_gpu.ui.PAINTIFY_PT_live):
         layout = LayoutRecorder()
         panel.draw(SimpleNamespace(layout=layout), bpy.context)
         assert ("paintify.toggle_live", "Start Live Paint") in layout.buttons
@@ -171,6 +175,9 @@ def check_viewport(area, region):
     with bpy.context.temp_override(window=bpy.context.window, area=area, region=region):
         assert bpy.ops.paintify.toggle_live() == {"FINISHED"}
         try:
+            layout = LayoutRecorder()
+            paintify_gpu.ui.PAINTIFY_LIVE_PT_playback.draw(SimpleNamespace(layout=layout), bpy.context)
+            assert ("paintify.toggle_live", "Stop Live Paint") in layout.buttons
             viewport._draw_overlay()
             assert not viewport._Viewport.error, viewport._Viewport.error
             assert viewport._Viewport.canvas is not None, "No painted overlay"

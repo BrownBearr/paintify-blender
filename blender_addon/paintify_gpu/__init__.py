@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Paintify Live",
     "author": "BrownBearr",
-    "version": (0, 4, 2),
+    "version": (0, 4, 3),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Paintify",
     "description": "Live painterly overlay of the 3D Viewport, and painted renders that match it",
@@ -27,7 +27,7 @@ CLASSES = (
     render.PAINTIFY_OT_render_image,
     render.PAINTIFY_OT_render_animation,
     ui.PAINTIFY_PT_live,
-    ui.PAINTIFY_LIVE_PT_render_properties,
+    ui.PAINTIFY_LIVE_PT_playback,
 ) + ui.LOOK_PANELS
 
 

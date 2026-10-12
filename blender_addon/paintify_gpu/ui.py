@@ -31,6 +31,7 @@ class PAINTIFY_PT_live(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Paintify"
+    bl_order = -90
 
     def draw(self, context):
         layout = self.layout
@@ -59,16 +60,17 @@ class PAINTIFY_PT_live(bpy.types.Panel):
             layout.label(text=error[:60], icon="ERROR")
 
 
-class PAINTIFY_LIVE_PT_render_properties(bpy.types.Panel):
-    bl_label = "Paintify Live"
-    bl_idname = "PAINTIFY_LIVE_PT_render_properties"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "render"
+class PAINTIFY_LIVE_PT_playback(bpy.types.Panel):
+    bl_label = "Live Paint"
+    bl_idname = "PAINTIFY_LIVE_PT_playback"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Paintify"
     bl_order = -100
+    bl_options = {"HIDE_HEADER"}
 
     def draw(self, context):
-        PAINTIFY_PT_live.draw(self, context)
+        draw_live_button(self.layout)
 
 
 class PAINTIFY_PT_render(bpy.types.Panel):
