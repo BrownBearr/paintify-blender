@@ -18,7 +18,8 @@ ZIPS = ("paintify_live_mac.zip", "paintify_live_windows.zip")
 
 def addon_files():
     """{path inside the zip: file bytes} for everything the add-on ships."""
-    files = sorted(ADDON.glob("*.py")) + sorted((ADDON / "shaders").glob("*.glsl"))
+    files = (sorted(ADDON.glob("*.py")) + sorted(ADDON.glob("*.json")) +
+             sorted((ADDON / "shaders").glob("*.glsl")))
     return {f"paintify_gpu/{path.relative_to(ADDON).as_posix()}":
             path.read_bytes().replace(b"\r\n", b"\n") for path in files}
 

@@ -184,6 +184,16 @@ def _tick():
     return None
 
 
+def find_viewport(context):
+    if context.area is not None and context.area.type == "VIEW_3D":
+        return context.window, context.area
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                return window, area
+    return None, None
+
+
 class PAINTIFY_OT_toggle(bpy.types.Operator):
     bl_idname = "paintify.toggle_live"
     bl_label = "Toggle Paintify Live"
@@ -191,14 +201,18 @@ class PAINTIFY_OT_toggle(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.area is not None and context.area.type == "VIEW_3D"
+        return running() or find_viewport(context)[1] is not None
 
     def execute(self, context):
         if running():
             stop()
             return {"FINISHED"}
+        window, area = find_viewport(context)
+        if area is None:
+            self.report({"WARNING"}, "Open a 3D Viewport first")
+            return {"CANCELLED"}
         _Viewport.painter = Painter()
-        _Viewport.area_pointer = context.area.as_pointer()
+        _Viewport.area_pointer = area.as_pointer()
         _Viewport.error = ""
         _Viewport.failed = False
         _Viewport.last_capture = 0.0
@@ -207,5 +221,5 @@ class PAINTIFY_OT_toggle(bpy.types.Operator):
         _Viewport.handler = bpy.types.SpaceView3D.draw_handler_add(
             _draw_overlay, (), "WINDOW", "POST_PIXEL")
         bpy.app.timers.register(_tick, first_interval=0.05)
-        context.area.tag_redraw()
+        area.tag_redraw()
         return {"FINISHED"}

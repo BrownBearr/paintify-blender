@@ -124,6 +124,7 @@ void main()
   if (idx >= uPool.x) {
     return;
   }
+  if (idx % max(uPool.z, 1) != uPool.y) return;
   vec4 h0 = imageLoad(uHeads, head_texel(idx, 0));
   vec4 h1 = imageLoad(uHeads, head_texel(idx, 1));
   Stroke cur;

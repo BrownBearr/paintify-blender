@@ -63,7 +63,11 @@ void main()
   }
   /* Temporal coherence: a cell whose source barely changed keeps last
    * frame's paint (frameDiffThreshold). */
-  if (uGrid.z != 0 && cell.w < FRAME_DIFF) {
+  float refresh = styleOn() ? ST_REFRESH : 0.0;
+  uint refresh_hash = hash_u(uint(cell_index) ^ uint(layer + 1) * 83492791u);
+  float refresh_phase = fract(hash01(refresh_hash) + FRAME * 0.61803398875);
+  if (uGrid.z != 0 && cell.w < FRAME_DIFF * (1.0 - FRESH_PAINT * 0.9)
+      && refresh_phase >= refresh) {
     write_empty(dst);
     return;
   }
@@ -88,6 +92,14 @@ void main()
     col = hsv_to_rgb(hsv);
   }
   uint variant = brush_hash(sp, layer) & 0x7fffu;
+  if (styleOn()) {
+    if (dot(stroke_ref, vec3(0.2126, 0.7152, 0.0722)) < layerA().w ||
+        dot(stroke_ref, vec3(0.2126, 0.7152, 0.0722)) > ST_VALUE_GATE) {
+      write_empty(dst);
+      return;
+    }
+    col = styleColor(col, seed_hash, true) * layerB().y;
+  }
 
   int max_len = clamp(int(MAX_STROKE_LEN), 1, MAX_VERTS - 1);
   int min_len = max(int(MIN_STROKE_LEN), 1);
