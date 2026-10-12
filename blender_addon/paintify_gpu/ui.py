@@ -16,18 +16,13 @@ def draw_live_button(layout):
 
 
 class PAINTIFY_LIVE_preferences(bpy.types.AddonPreferences):
-    bl_idname = __package__
+    bl_idname = "paintify_gpu"
 
     def draw(self, context):
         draw_live_button(self.layout)
         settings = context.scene.paintify_live
         self.layout.prop(settings, "brush_family")
         self.layout.prop(settings, "brush_size")
-
-
-def draw_view_menu(self, context):
-    self.layout.separator()
-    draw_live_button(self.layout)
 
 
 class PAINTIFY_PT_live(bpy.types.Panel):
@@ -62,6 +57,18 @@ class PAINTIFY_PT_live(bpy.types.Panel):
             layout.label(text=f"Measured paint: {fps:.1f} FPS")
         if error:
             layout.label(text=error[:60], icon="ERROR")
+
+
+class PAINTIFY_LIVE_PT_render_properties(bpy.types.Panel):
+    bl_label = "Paintify Live"
+    bl_idname = "PAINTIFY_LIVE_PT_render_properties"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "render"
+    bl_order = -100
+
+    def draw(self, context):
+        PAINTIFY_PT_live.draw(self, context)
 
 
 class PAINTIFY_PT_render(bpy.types.Panel):

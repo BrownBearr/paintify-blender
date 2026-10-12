@@ -9,6 +9,7 @@ from dataclasses import replace
 import os
 import sys
 import tempfile
+from types import SimpleNamespace
 
 import bpy
 import gpu
@@ -141,6 +142,26 @@ def check_viewport(area, region):
     assert "paintify_gpu" in bpy.context.preferences.addons
     preferences = bpy.context.preferences.addons["paintify_gpu"].preferences
     assert preferences.bl_rna.identifier == "PAINTIFY_LIVE_preferences"
+    assert bpy.types.PAINTIFY_LIVE_PT_render_properties.bl_context == "render"
+    class LayoutRecorder:
+        def __init__(self):
+            self.buttons = []
+
+        def row(self, **kwargs):
+            return self
+
+        def operator(self, identifier, **kwargs):
+            self.buttons.append((identifier, kwargs.get("text")))
+            return SimpleNamespace()
+
+        def prop(self, *args, **kwargs):
+            pass
+
+    for panel in (paintify_gpu.ui.PAINTIFY_LIVE_preferences,
+                  paintify_gpu.ui.PAINTIFY_LIVE_PT_render_properties):
+        layout = LayoutRecorder()
+        panel.draw(SimpleNamespace(layout=layout), bpy.context)
+        assert ("paintify.toggle_live", "Start Live Paint") in layout.buttons
     other = next((a for a in bpy.context.screen.areas if a.type != "VIEW_3D"), None)
     if other is not None:
         with bpy.context.temp_override(area=other):
