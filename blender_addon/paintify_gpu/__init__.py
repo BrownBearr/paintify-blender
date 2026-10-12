@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Paintify Live",
     "author": "BrownBearr",
-    "version": (0, 4, 0),
+    "version": (0, 4, 1),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Paintify",
     "description": "Live painterly overlay of the 3D Viewport, and painted renders that match it",
@@ -16,6 +16,7 @@ from bpy.props import PointerProperty
 from . import look_files, painter, render, settings, ui, viewport
 
 CLASSES = (
+    ui.PAINTIFY_LIVE_preferences,
     settings.PAINTIFY_Pigment,
     settings.PAINTIFY_LiveSettings,
     look_files.PAINTIFY_OT_load_look,
@@ -34,9 +35,11 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.paintify_live = PointerProperty(type=settings.PAINTIFY_LiveSettings)
     bpy.types.TOPBAR_MT_render.append(ui.draw_render_menu)
+    bpy.types.VIEW3D_MT_view.append(ui.draw_view_menu)
 
 
 def unregister():
+    bpy.types.VIEW3D_MT_view.remove(ui.draw_view_menu)
     bpy.types.TOPBAR_MT_render.remove(ui.draw_render_menu)
     viewport.stop()
     painter.release()

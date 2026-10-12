@@ -7,6 +7,29 @@ from .controls import GROUPS
 from .settings import migrate_settings
 
 
+def draw_live_button(layout):
+    running = viewport.running()
+    row = layout.row()
+    row.scale_y = 1.4
+    row.operator("paintify.toggle_live", text="Stop Live Paint" if running else "Start Live Paint",
+                 icon="PAUSE" if running else "PLAY")
+
+
+class PAINTIFY_LIVE_preferences(bpy.types.AddonPreferences):
+    bl_idname = __package__
+
+    def draw(self, context):
+        draw_live_button(self.layout)
+        settings = context.scene.paintify_live
+        self.layout.prop(settings, "brush_family")
+        self.layout.prop(settings, "brush_size")
+
+
+def draw_view_menu(self, context):
+    self.layout.separator()
+    draw_live_button(self.layout)
+
+
 class PAINTIFY_PT_live(bpy.types.Panel):
     bl_label = "Paintify Live"
     bl_idname = "PAINTIFY_PT_live"
@@ -21,8 +44,7 @@ class PAINTIFY_PT_live(bpy.types.Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
         running = viewport.running()
-        layout.operator("paintify.toggle_live", text="Stop Live Paint" if running else "Start Live Paint",
-                        icon="PAUSE" if running else "PLAY")
+        draw_live_button(layout)
         row = layout.row(align=True)
         row.operator("paintify.load_look", text="Load Look", icon="FILE_FOLDER")
         row.operator("paintify.save_look", text="Save Look", icon="FILE_TICK")
@@ -31,17 +53,8 @@ class PAINTIFY_PT_live(bpy.types.Panel):
             draw_render_settings(layout, settings)
             return
         layout.prop(settings, "brush_family")
-        layout.prop(settings, "radius_set")
-        if settings.radius_set == "custom":
-            layout.prop(settings, "radii_text")
         layout.prop(settings, "brush_size")
-        layout.prop(settings, "threshold")
-        layout.prop(settings, "curvature")
-        layout.prop(settings, "max_length")
-        layout.prop(settings, "min_length")
-        layout.prop(settings, "grid_factor")
         layout.prop(settings, "stroke_opacity")
-        layout.prop(settings, "bk_enabled")
         if settings.layer_specs != "[]":
             layout.operator("paintify.global_layers", icon="RECOVER_LAST")
         fps, error = viewport.status()
@@ -87,7 +100,14 @@ def _draw_group(self, context):
     layout.use_property_split = True
     layout.use_property_decorate = False
     group = self.bl_label
-    if group == "Brush":
+    if group == "Stroke Settings":
+        layout.prop(settings, "radius_set")
+        if settings.radius_set == "custom":
+            layout.prop(settings, "radii_text")
+        for prop in ("threshold", "curvature", "max_length", "min_length", "grid_factor", "bk_enabled"):
+            layout.prop(settings, prop)
+        return
+    elif group == "Brush":
         if settings.brush_family == "none":
             for prop in ("brush_texture", "texture_taper", "bristle_density", "dry_brush",
                          "impasto", "impasto_light", "light_angle"):
@@ -142,13 +162,13 @@ def _look_panel_visible(cls, context):
     return context.scene.paintify_live.inspector_tab == "LOOK"
 
 
-LOOK_PANELS = tuple(type("PAINTIFY_LIVE_PT_" + name.lower(), (bpy.types.Panel,), {
+LOOK_PANELS = tuple(type("PAINTIFY_LIVE_PT_" + name.lower().replace(" ", "_"), (bpy.types.Panel,), {
     "__module__": __name__,
-    "bl_label": name, "bl_idname": "PAINTIFY_LIVE_PT_" + name.lower(),
+    "bl_label": name, "bl_idname": "PAINTIFY_LIVE_PT_" + name.lower().replace(" ", "_"),
     "bl_parent_id": "PAINTIFY_PT_live", "bl_space_type": "VIEW_3D",
     "bl_region_type": "UI", "bl_category": "Paintify", "bl_options": {"DEFAULT_CLOSED"},
     "poll": classmethod(_look_panel_visible), "draw": _draw_group,
-}) for name in (*GROUPS, "Variation", "Quality", "Motion"))
+}) for name in ("Stroke Settings", *GROUPS, "Variation", "Quality", "Motion"))
 
 
 def draw_render_menu(self, context):

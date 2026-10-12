@@ -138,6 +138,15 @@ def check_brushkit():
 
 def check_viewport(area, region):
     scene = bpy.context.scene
+    assert "paintify_gpu" in bpy.context.preferences.addons
+    preferences = bpy.context.preferences.addons["paintify_gpu"].preferences
+    assert preferences.bl_rna.identifier == "PAINTIFY_LIVE_preferences"
+    other = next((a for a in bpy.context.screen.areas if a.type != "VIEW_3D"), None)
+    if other is not None:
+        with bpy.context.temp_override(area=other):
+            assert bpy.ops.paintify.toggle_live() == {"FINISHED"}
+            assert viewport.running()
+            assert bpy.ops.paintify.toggle_live() == {"FINISHED"}
     with bpy.context.temp_override(window=bpy.context.window, area=area, region=region):
         assert bpy.ops.paintify.toggle_live() == {"FINISHED"}
         try:
