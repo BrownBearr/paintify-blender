@@ -9,6 +9,7 @@ from .looks import PRESET_CONTROLS, PRESETS, Look
 from .brushkit import (BRUSHES, BRUSH_FIELDS, DEFAULT_BLOCK, RADIUS_SETS,
                        STYLE_FIELDS, STYLE_INDEX, select_brush)
 from .controls import ENUMS, GROUPS
+from .scene import SPACES
 
 
 def _preset_changed(self, context):
@@ -95,6 +96,16 @@ class PAINTIFY_LiveSettings(bpy.types.PropertyGroup):
                                   ("75", "75%", ""), ("100", "100%", "")],
         default="50",
         description="Viewport paint resolution. Renders always paint at full render size",
+    )
+    space: EnumProperty(
+        name="Paint space", items=SPACES, default="SCREEN",
+        description="Where strokes live. Object and World keep brushwork on the 3D surface "
+                    "as objects and the camera move",
+    )
+    relight: BoolProperty(
+        name="Relight strokes", default=True,
+        description="Recolour attached strokes from the current frame, so shading follows the "
+                    "light. Off keeps the colour each stroke was painted with",
     )
     hold_frames: BoolProperty(
         name="Stop-motion render", default=True,

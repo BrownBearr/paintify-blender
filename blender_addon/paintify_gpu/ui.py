@@ -39,6 +39,14 @@ class PAINTIFY_PT_live(bpy.types.Panel):
         layout.use_property_decorate = False
         running = viewport.running()
         draw_live_button(layout)
+        layout.prop(settings, "space")
+        if settings.space != "SCREEN":
+            box = layout.column(align=True)
+            box.prop(settings, "relight")
+            box.operator("paintify.reset_scene", icon="FILE_REFRESH")
+            strokes, full = viewport.scene_status()
+            if running and strokes:
+                box.label(text=f"Scene strokes: {strokes:,}" + (" (full)" if full else ""))
         row = layout.row(align=True)
         row.operator("paintify.load_look", text="Load Look", icon="FILE_FOLDER")
         row.operator("paintify.save_look", text="Save Look", icon="FILE_TICK")

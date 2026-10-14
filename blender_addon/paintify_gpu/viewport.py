@@ -2,7 +2,8 @@
 
 In camera view the overlay paints exactly the camera frame, drawn with the
 camera's own projection at the render's aspect, so it previews what the
-render operators produce. Elsewhere it paints the whole region.
+render operators produce. Elsewhere it paints the whole region. In Object or
+World paint space, strokes stay on the scene's surfaces (see scene.py).
 """
 
 import time
@@ -12,8 +13,8 @@ import gpu
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 
+from . import scene as scene_paint
 from .looks import stroke_scale
-from .painter import Painter
 from .settings import look_from_settings
 
 MAX_CAPTURE_PIXELS = 3840 * 2160
@@ -54,6 +55,19 @@ def idle():
     return running() and time.monotonic() - _Viewport.last_change >= SETTLE_SECONDS
 
 
+def scene_status():
+    """(stored scene strokes, store full) of the running overlay."""
+    painter = _Viewport.painter
+    if painter is None:
+        return 0, False
+    return painter.scene_strokes, painter.scene_full
+
+
+def reset_scene():
+    if _Viewport.painter is not None:
+        _Viewport.painter.reset_scene()
+
+
 def render_size(scene):
     pct = scene.render.resolution_percentage / 100.0
     return (max(1, int(scene.render.resolution_x * pct)),
@@ -66,7 +80,8 @@ def _changed(*_args):
 
 def _settings_key(scene):
     settings = scene.paintify_live
-    return (look_from_settings(settings), settings.opacity, settings.fps, settings.resolution)
+    return (look_from_settings(settings), settings.opacity, settings.fps, settings.resolution,
+            settings.space, settings.relight)
 
 
 def _watch(enable):
@@ -143,10 +158,14 @@ def _paint(context, settings, rect):
     offscreen.draw_view3d(context.scene, context.view_layer, context.space_data, context.region,
                           view, projection, do_color_management=True)
     look = look_from_settings(settings)
+    view_input = None
+    if settings.space != "SCREEN":
+        view_input = scene_paint.collect(context.evaluated_depsgraph_get(), view, projection,
+                                         settings.space, settings.relight)
     _Viewport.canvas = _Viewport.painter.paint(
         offscreen.texture_color, width, height, look,
         scale=stroke_scale(width, height, look.brush_size), temporal=True,
-        frame=context.scene.frame_current)
+        frame=context.scene.frame_current, view=view_input)
 
     now = time.monotonic()
     # A gap after an idle pause is not a slow frame.
@@ -261,7 +280,7 @@ class PAINTIFY_OT_toggle(bpy.types.Operator):
         if area is None:
             self.report({"WARNING"}, "Open a 3D Viewport first")
             return {"CANCELLED"}
-        _Viewport.painter = Painter()
+        _Viewport.painter = scene_paint.ScenePainter()
         _Viewport.area_pointer = area.as_pointer()
         _Viewport.error = ""
         _Viewport.failed = False
@@ -276,4 +295,17 @@ class PAINTIFY_OT_toggle(bpy.types.Operator):
             _draw_overlay, (), "WINDOW", "POST_PIXEL")
         bpy.app.timers.register(_tick, first_interval=0.05)
         area.tag_redraw()
+        return {"FINISHED"}
+
+
+class PAINTIFY_OT_reset_scene(bpy.types.Operator):
+    bl_idname = "paintify.reset_scene"
+    bl_label = "Repaint Scene Strokes"
+    bl_description = ("Forget the strokes attached to objects; the next painted frame lays "
+                      "them down again from the current view")
+
+    def execute(self, context):
+        reset_scene()
+        if context.area is not None:
+            context.area.tag_redraw()
         return {"FINISHED"}

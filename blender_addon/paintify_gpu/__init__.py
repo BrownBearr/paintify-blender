@@ -1,4 +1,5 @@
-"""Paintify Live: painterly strokes over the 3D Viewport and in final renders."""
+"""Paintify Live: painterly strokes over the 3D Viewport and in final renders,
+in screen space or attached to the scene's objects (Paintify Scene)."""
 
 bl_info = {
     "name": "Paintify Live",
@@ -6,7 +7,8 @@ bl_info = {
     "version": (0, 5, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Paintify",
-    "description": "Live painterly overlay of the 3D Viewport, and painted renders that match it",
+    "description": "Live painterly overlay of the 3D Viewport, painted renders that match it, "
+                   "and brushwork that stays on objects as they move",
     "category": "3D View",
 }
 
@@ -24,7 +26,7 @@ import bpy
 from bpy.app.handlers import persistent
 from bpy.props import PointerProperty
 
-from . import look_files, painter, render, settings, ui, viewport
+from . import look_files, painter, render, scene, settings, ui, viewport
 
 CLASSES = (
     ui.PAINTIFY_LIVE_preferences,
@@ -35,6 +37,7 @@ CLASSES = (
     look_files.PAINTIFY_OT_global_layers,
     look_files.PAINTIFY_OT_palette,
     viewport.PAINTIFY_OT_toggle,
+    viewport.PAINTIFY_OT_reset_scene,
     render.PAINTIFY_OT_render_image,
     render.PAINTIFY_OT_render_animation,
     ui.PAINTIFY_PT_live,
@@ -60,6 +63,7 @@ def register():
     bpy.app.handlers.load_post.append(_migrate_on_load)
     # The open file's scenes cannot be written during registration itself.
     bpy.app.timers.register(_migrate_now, first_interval=0.0)
+    scene.register()
 
 
 def unregister():
@@ -68,6 +72,7 @@ def unregister():
     if bpy.app.timers.is_registered(_migrate_now):
         bpy.app.timers.unregister(_migrate_now)
     bpy.types.TOPBAR_MT_render.remove(ui.draw_render_menu)
+    scene.unregister()
     viewport.stop()
     painter.release()
     del bpy.types.Scene.paintify_live

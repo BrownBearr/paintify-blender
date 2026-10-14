@@ -226,6 +226,81 @@ def check_viewport(area, region):
     assert not viewport.running()
 
 
+def check_scene(area, region):
+    """Paintify Scene in the viewport: strokes lifted onto the objects are
+    redrawn in place, and follow an object as it turns."""
+    scene = bpy.context.scene
+    settings = scene.paintify_live
+    # Start from the defaults; check_brushkit leaves a Brushkit look applied.
+    for prop in settings.bl_rna.properties:
+        if prop.identifier != "rna_type":
+            settings.property_unset(prop.identifier)
+    settings.pigments.clear()
+    cube = bpy.data.objects["Cube"]
+    rotation = cube.rotation_euler.copy()
+    space = area.spaces.active.region_3d
+
+    def paint():
+        viewport._Viewport.last_capture = 0.0
+        viewport._draw_overlay()
+        assert not viewport._Viewport.error, viewport._Viewport.error
+        return np.array(viewport._Viewport.canvas.read(), dtype=np.float32)
+
+    settings.space = "OBJECT"
+    try:
+        with bpy.context.temp_override(window=bpy.context.window, area=area, region=region):
+            assert bpy.ops.paintify.toggle_live() == {"FINISHED"}
+            try:
+                space.view_perspective = "CAMERA"
+                first = paint()
+                strokes, _full = viewport.scene_status()
+                assert strokes > 0, "no strokes were attached to the cube"
+                again = paint()
+                # The second frame draws the stored strokes, reprojected.
+                assert np.abs(again - first).mean() < 1e-3, np.abs(again - first).mean()
+                assert viewport.scene_status()[0] == strokes, "a still scene must not add strokes"
+                cube.rotation_euler.z += 0.3
+                bpy.context.view_layer.update()
+                turned = paint()
+                grown = viewport.scene_status()[0]
+                assert strokes <= grown < 3 * strokes, (strokes, grown)
+                assert np.abs(turned - first).mean() > 1e-3, "the cube turned, the paint must follow"
+                # A Brushkit material paints scene strokes with its own brush model.
+                settings.brush_family = "vangogh"
+                assert bpy.ops.paintify.reset_scene() == {"FINISHED"}
+                material = paint()
+                assert viewport.scene_status()[0] > 0, "no Brushkit strokes on the cube"
+                assert np.isfinite(material).all() and material[..., :3].std() > 0.02
+                assert np.abs(material - turned).mean() > 1e-3, "the material changed nothing"
+                # Flat and knife tips end at their seed; a still scene must
+                # not keep re-seeding them.
+                for family in ("cezanne", "knife"):
+                    settings.brush_family = family
+                    assert bpy.ops.paintify.reset_scene() == {"FINISHED"}
+                    paint()
+                    settled = viewport.scene_status()[0]
+                    for _ in range(3):
+                        paint()
+                    assert viewport.scene_status()[0] == settled, (family, settled, viewport.scene_status())
+                settings.brush_family = "none"
+                # Pointillist's one-point minimum must still attach strokes.
+                settings.preset = "pointillist"
+                assert bpy.ops.paintify.reset_scene() == {"FINISHED"}
+                paint()
+                assert viewport.scene_status()[0] > 0, "Pointillist attached no strokes"
+                settings.property_unset("preset")
+                settings.space = "WORLD"
+                paint()
+                assert viewport.scene_status()[0] > 0
+                assert bpy.ops.paintify.reset_scene() == {"FINISHED"}
+                assert viewport.scene_status()[0] == 0
+            finally:
+                assert bpy.ops.paintify.toggle_live() == {"FINISHED"}
+    finally:
+        settings.space = "SCREEN"
+        cube.rotation_euler = rotation
+
+
 def check_render(out_dir):
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
@@ -274,6 +349,25 @@ def check_render(out_dir):
     assert "Paintify Output" not in bpy.data.scenes, "scratch scene left behind"
     assert scene.render.image_settings.file_format == "PNG"
 
+    # The same sequence with strokes attached to the cube.
+    scene.paintify_live.space = "OBJECT"
+    scene.render.filepath = os.path.join(out_dir, "scene_")
+    try:
+        assert bpy.ops.paintify.render_animation() == {"FINISHED"}
+    finally:
+        scene.paintify_live.space = "SCREEN"
+    attached = []
+    for frame in range(1, 5):
+        path = scene.render.frame_path(frame=frame)
+        assert os.path.isfile(path), path
+        loaded = bpy.data.images.load(path, check_existing=False)
+        px = np.empty(192 * 108 * 4, np.float32)
+        loaded.pixels.foreach_get(px)
+        bpy.data.images.remove(loaded)
+        attached.append(px)
+    assert np.array_equal(attached[0], attached[1]), "held frames must match"
+    assert not np.array_equal(attached[1], attached[2]), "the cube turns, so the painting should change"
+
     # Movie through Blender's encoder.
     if hasattr(settings, "media_type"):
         settings.media_type = "VIDEO"
@@ -301,6 +395,7 @@ try:
     area = next(area for area in bpy.context.screen.areas if area.type == "VIEW_3D")
     region = next(region for region in area.regions if region.type == "WINDOW")
     check_viewport(area, region)
+    check_scene(area, region)
     with tempfile.TemporaryDirectory() as out_dir:
         check_render(out_dir)
     print("PAINTIFY_BLENDER_SMOKE_OK")

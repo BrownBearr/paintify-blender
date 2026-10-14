@@ -2,7 +2,9 @@
 
 Each frame is rendered with the scene's engine, saved through the scene's
 colour management (so it matches what the viewport overlay samples), painted
-at full render size and written to the scene's output. Movie formats are
+at full render size and written to the scene's output. In Object or World
+paint space the job's painter keeps strokes on the scene's surfaces from
+frame to frame, starting afresh at the first frame. Movie formats are
 assembled with Blender's own encoder from a temporary image sequence.
 """
 
@@ -13,8 +15,9 @@ import tempfile
 import bpy
 import numpy as np
 
+from . import scene as scene_paint
 from .looks import hold_frames, stroke_scale
-from .painter import Painter, texture_from_pixels
+from .painter import texture_from_pixels
 from .settings import look_from_settings
 from .viewport import render_size
 
@@ -121,6 +124,8 @@ class RenderJob:
         self.scene = scene
         self.animation = animation
         self.look = look_from_settings(settings)
+        self.space = settings.space
+        self.relight = settings.relight
         self.width, self.height = render_size(scene)
         # Scale from the full frame, as the camera-view overlay does.
         self.scale = stroke_scale(self.width, self.height, self.look.brush_size)
@@ -134,7 +139,7 @@ class RenderJob:
             self.hold = 1
         self.movie = animation and scene.render.is_movie_format
         self.original_frame = scene.frame_current
-        self.painter = Painter()
+        self.painter = scene_paint.ScenePainter()
         self.tmpdir = tempfile.mkdtemp(prefix="paintify_")
         self.output = _output_scene(scene, self.width, self.height) if animation else None
         self.frame_image = None
@@ -169,11 +174,23 @@ class RenderJob:
             pass  # close() removes the whole scratch directory anyway.
         return pixels, width, height
 
+    def _scene_view(self, width, height):
+        """The render camera and geometry of the current frame."""
+        scene = self.scene
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        camera = scene.camera
+        projection = camera.calc_matrix_camera(
+            depsgraph, x=width, y=height,
+            scale_x=scene.render.pixel_aspect_x, scale_y=scene.render.pixel_aspect_y)
+        return scene_paint.collect(depsgraph, camera.matrix_world.inverted(), projection,
+                                   self.space, self.relight, render=True)
+
     def _paint(self, frame):
         pixels, width, height = self._render_source(frame)
         texture = texture_from_pixels(pixels, width, height)
+        view = self._scene_view(width, height) if self.space != "SCREEN" else None
         self.painter.paint(texture, width, height, self.look, scale=self.scale,
-                           temporal=True, frame=frame)
+                           temporal=True, frame=frame, view=view)
         painted = self.painter.read_pixels()
         painted[..., 3] = 1.0
         return painted

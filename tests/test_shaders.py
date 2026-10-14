@@ -23,7 +23,7 @@ import stages
 
 GLSLANG = os.environ.get("PAINTIFY_GLSLANG") or shutil.which("glslangValidator")
 _TYPES = {"INT": "int", "FLOAT": "float", "IVEC2": "ivec2", "IVEC4": "ivec4", "VEC2": "vec2",
-          "VEC3": "vec3", "VEC4": "vec4"}
+          "VEC3": "vec3", "VEC4": "vec4", "MAT4": "mat4"}
 VULKAN, OPENGL = "vulkan", "opengl"
 _VERSION = {VULKAN: "#version 450\n", OPENGL: "#version 430 core\n"}
 
@@ -72,13 +72,12 @@ def compute_glsl(name, target=VULKAN):
     return "".join(out)
 
 
-def stroke_glsl(target=VULKAN):
-    spec = stages.STROKE
-    header = [_VERSION[target], _params_block(target, True, True),
+def graphics_glsl(spec, target=VULKAN):
+    header = [_VERSION[target], _params_block(target, spec["params"], spec.get("style", False)),
               _samplers(target, spec["samplers"]), _push_constants(target, spec["push"])]
     varyings = ([("", k, n) for k, n in spec["smooth"]] +
                 [("flat ", k, n) for k, n in spec["flat"]])
-    vertex, fragment = stages.stroke_sources()
+    vertex, fragment = stages.graphics_sources(spec)
     vert = list(header)
     if target == VULKAN:
         vert.append("#define gl_InstanceID gl_InstanceIndex\n")
@@ -120,12 +119,13 @@ class ShaderCompileTests(unittest.TestCase):
                 with self.subTest(target=target, stage=name):
                     self.compile("comp", compute_glsl(name, target), target)
 
-    def test_stroke_stages(self):
+    def test_graphics_stages(self):
         for target in (VULKAN, OPENGL):
-            vertex, fragment = stroke_glsl(target)
-            with self.subTest(target=target):
-                self.compile("vert", vertex, target)
-                self.compile("frag", fragment, target)
+            for name, spec in stages.GRAPHICS.items():
+                vertex, fragment = graphics_glsl(spec, target)
+                with self.subTest(target=target, stage=name):
+                    self.compile("vert", vertex, target)
+                    self.compile("frag", fragment, target)
 
 
 if __name__ == "__main__":

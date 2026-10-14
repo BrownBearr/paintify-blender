@@ -60,6 +60,38 @@ In camera view it renders the camera frame through `GPUOffScreen.draw_view3d`
 with the camera's matrices at the render aspect; otherwise the whole region.
 The painted canvas is drawn back as a textured quad.
 
+`scene.py` is Paintify Scene: `ScenePainter` extends `Painter` so strokes on
+objects persist in object (or world) space instead of being repainted each
+frame. Per painted frame:
+
+1. A G-buffer pass draws every visible object's evaluated triangles with the
+   painted camera: object-space position and a stable per-object slot
+   (RGBA32F) and linear view depth (R32F). A small table texture holds each
+   slot's current model-view-projection, view-z row and model matrix.
+2. The screen pipeline paints the background with cells masked off objects.
+   Blurs and Sobel stay within one slot, so no surface is painted from the
+   colours of whatever passes in front of it.
+3. Per layer: the stored strokes are projected through their slot's matrices
+   and drawn (`scene_stroke_vert.glsl` + the shared fragment stage), hidden
+   per fragment behind nearer G-buffer depth, faded when foreshortening
+   squashes or stretches them, and, below the coarsest layer, retired where
+   the coarser paint no longer misses detail. Their lengths stay in the
+   pixels they were painted in, so coverage and brush texture ride with them.
+4. `scene_cells.glsl` seeds only where object surface has no stroke of this
+   layer yet (coverage accumulates in the green channel of the height
+   target). The ordinary tracer paints there; `lift_count.glsl` cuts each new
+   stroke at silhouettes and flags it; `scan.glsl` prefix-sums the flags and
+   `lift_write.glsl` appends the flagged strokes, in draw order, to the
+   layer's store through the G-buffer (bilinear, so the redraw lands to a
+   fraction of a pixel). Strokes seeded within spill reach of a nearer
+   surface (`shadow.glsl`) are drawn but not stored.
+
+Blender's Python GPU API has no atomics, so compaction is a two-level scan
+with one serial pass over block sums; the store count comes back to the CPU
+in one 1-texel-per-layer readback per frame, which sizes the next frame's
+instanced draw. A fresh store runs the object pass three times on its first
+frame so the first shown frame is already the settled one.
+
 `render.py` renders each frame with the scene's engine, saves the result
 through the scene's colour management (the display-referred image the
 overlay also paints), paints it at render size and writes the scene's output.

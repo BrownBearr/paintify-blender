@@ -1,4 +1,8 @@
 void brushkitBrushModel() {
+#ifdef SCENE_STROKE
+    // Paintify Scene: hidden behind a nearer surface of the G-buffer.
+    if (vDepth > texelFetch(uGDepth, ivec2(gl_FragCoord.xy), 0).r + vDepthTol) discard;
+#endif
     // per-layer brush role
     vec4 LA = layerA(), LB = layerB();
     float impasto = ST_IMPASTO * LA.x;
@@ -57,8 +61,23 @@ void brushkitBrushModel() {
                  + 0.3 * gnoise(vec2(spc / (W * 0.22) + off.x * 1.3, side * 5.7 + off.y), s + 37u);
         q -= ST_EDGE_ROUGH * er;
     }
-    float shape = clamp((1.0 - q) * hw / edgeSoft + 0.5, 0.0, 1.0);
-    if (shape < 0.003) discard;
+    float shape = clamp((1.0 - q) * hw / edgeSoft + 0.5, 0.0, 1.0) * clamp(vVis, 0.0, 1.0);
+    // Geometric coverage for Paintify Scene: the round-capped ribbon, whatever
+    // the tip. A flat or knife tip ends at the seed point and would leave it,
+    // the cell's highest error, uncovered, so the same stroke would be seeded
+    // again every frame.
+    float round_d = sqrt(av * av * hw * hw + over * over * float(beyond));
+    float covered = clamp(hw - round_d + 0.5, 0.0, 1.0) * clamp(vVis, 0.0, 1.0);
+    if (shape < 0.003) {
+#ifdef SCENE_STROKE
+        if (covered >= 0.003) {
+            fragColor = vec4(0.0);
+            fragHeight = vec4(0.0, covered, 0.0, 0.0);
+            return;
+        }
+#endif
+        discard;
+    }
 
     // --- paint: bristles, load, dry brush ----------------------------------
     float loadU = clamp(ST_LOAD * (1.0 - dryout * pow(u, 1.3)), 0.0, 1.0);
@@ -75,7 +94,17 @@ void brushkitBrushModel() {
     }
     float alphaT = shape * tex;
     float a = min(1.0, alphaT * vOpacity);
-    if (alphaT < 0.002) discard;
+    if (alphaT < 0.002) {
+#ifdef SCENE_STROKE
+        // Too faint to paint, but this surface is covered: record it, or
+        // Paintify Scene would seed a new stroke here every frame.
+        fragColor = vec4(0.0);
+        fragHeight = vec4(0.0, covered, 0.0, 0.0);
+        return;
+#else
+        discard;
+#endif
+    }
 
     // --- colour ------------------------------------------------------------
     vec3 col = vColor;
@@ -108,5 +137,7 @@ void brushkitBrushModel() {
         float blob = 1.0 + ST_START_BLOB * exp(-u * L / (W * 0.8));
         dep = impasto * max(ridge, 0.0) * blob * (0.35 + 0.65 * loadU) * smoothstep(0.0, 1.0, shape);
     }
-    fragHeight = vec4(dep * alphaT, 0.0, 0.0, clamp(ST_FLATTEN * alphaT, 0.0, 1.0));
+    // r: relief; g: plain coverage, which Paintify Scene reads to find
+    // surface no stroke covers yet; a: how much this stroke flattens relief.
+    fragHeight = vec4(dep * alphaT, covered, 0.0, clamp(ST_FLATTEN * alphaT, 0.0, 1.0));
 }

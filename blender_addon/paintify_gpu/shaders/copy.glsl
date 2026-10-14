@@ -1,6 +1,7 @@
 /* Small whole-image writes: importing the source, copying a target, and the
  * flat underpaints. Mode 0 clamps and makes opaque, 1 copies exactly, 2 fills
- * with uFill, 3 fills with the mean that mean.glsl left in texel (0, 0). */
+ * with uFill, 3 fills with the mean that mean.glsl left in texel (0, 0), 4
+ * copies with green zeroed (the stroke coverage channel of a height target). */
 void main()
 {
   ivec2 px = ivec2(gl_GlobalInvocationID.xy);
@@ -16,6 +17,10 @@ void main()
   }
   else if (uMode == 2) {
     c = vec4(clamp(uFill.rgb, 0.0, 1.0), 1.0);
+  }
+  else if (uMode == 4) {
+    c = texelFetch(uIn, px, 0);
+    c.g = 0.0;
   }
   else {
     vec4 sum = texelFetch(uIn, ivec2(0, 0), 0);
