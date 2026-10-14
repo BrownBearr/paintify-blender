@@ -30,8 +30,21 @@ repository, restart Blender and install again.
 ## Viewport
 
 Open a **3D Viewport**, press **N** for the sidebar, and open **Paintify**.
-Click **Start Live Paint**. Adjust style, brush size, curvature, threshold,
-brush texture, impasto, relaxation and opacity while looking at the viewport.
+Click **Start Live Paint**. The **Look** inspector has the same independent
+brush, stroke, colour, ground, finish, and motion settings as current Brushkit.
+Choose one of 23 era brush textures or the classic tile brush. **Radius set**
+changes only the stroke sizes; it no longer replaces the entire painting look.
+Expandable sections contain material, direction, palette, surface, effects,
+variation, quality, and motion controls. Blender keeps its native theme and widgets.
+
+**Load Look** and **Save Look** use Brushkit's version 1 `.sbr` files, including
+the complete material block, palette, and historical per-layer overrides.
+**Use Global Stroke Settings** clears imported layer overrides so the global
+length, detail, and curvature controls apply to every layer. Older `.blend`
+files retain their five-preset settings through a one-time migration.
+
+Unchanged sources reuse the completed painting. Moving inputs can use
+Lucas-Kanade motion tracking, paint renewal, and fresh paint to limit smearing.
 **Paint FPS** sets the stop-motion cadence and **Resolution** trades preview
 detail for speed. The panel shows the measured paint rate. When nothing in
 the scene, the view or the settings has changed for a moment, the overlay
@@ -48,7 +61,7 @@ render. Outside camera view it paints the whole viewport.
 
 ## Render
 
-In the **Render** subpanel (also at the bottom of Blender's **Render** menu):
+In the **Render** inspector tab (also at the bottom of Blender's **Render** menu):
 
 - **Render Painted Image** renders the current frame with the scene's engine,
   paints it and opens it as the **Paintify Render** image. Save it from the
@@ -84,3 +97,17 @@ tests and the packaging tool. See `CLAUDE.md` for the rules.
 - `blender --background --factory-startup --python tests/blender_smoke.py`
   paints, drives the overlay and renders a still, a PNG sequence and an MP4.
   It also runs under the `bpy` 5.2 module; on Linux wrap it in `xvfb-run`.
+- Blender 5.1 on Mac does not expose drawing GPU functions in background mode.
+  Use `blender --factory-startup --python tools/blender_desktop_test.py` there.
+  This opens a temporary desktop instance, runs the tests on Metal, and quits.
+- `python tools/sync_brushkit.py /path/to/Paintify-GPU` refreshes the shared brush
+  definitions and portable shaders from the standalone repository. It requires
+  a C++17 compiler only for development; packaged users need no compiler.
+
+Version 0.4.0 was tested with Blender 5.1.1 on Apple M1/Metal. Shader checks also
+compile every stage as Vulkan and OpenGL 4.3 GLSL. Windows/Linux runtime testing
+and native sidebar visual inspection remain separate from those compiler checks.
+
+The Live panels use their own identifiers and can coexist with the older
+Paintify geometry-nodes extension. Its geometry and compositor tools remain
+available separately from the GPU overlay.

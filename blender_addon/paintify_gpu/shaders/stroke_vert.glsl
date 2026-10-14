@@ -37,6 +37,9 @@ void main()
   vTotalLen = 1.0;
   vOpacity = 0.0;
   vTexHash = 0.0;
+  vRadius = 0.0;
+  vHw = 0.0;
+  vTang = vec2(1.0, 0.0);
   if (vc < 2) {
     /* worker.js: fewer than two points draws nothing. */
     gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
@@ -72,6 +75,14 @@ void main()
 
   float taper = (TEX_STRENGTH > 0.0) ? taper_at(arc / total_len, clamp(TEX_TAPER, 0.0, 1.0)) : 1.0;
   float r_eff = radius * taper;
+  if (brushkitBrush()) {
+    float u = arc / total_len;
+    float start = ST_TAPER_START > 0.0 ? smoothstep(0.0, ST_TAPER_START, u) : 1.0;
+    float end_ = ST_TAPER_END > 0.0 ? smoothstep(0.0, ST_TAPER_END, 1.0-u) : 1.0;
+    float shape = mix(ST_TIP_MIN, 1.0, min(start, end_));
+    shape *= 1.0 + ST_SWELL * sin(u * 3.14159265);
+    r_eff = max(0.3, radius * ST_WIDTH_SCALE * layerB().x * shape);
+  }
 
   /* Miter so the ribbon edges meet at a bend; clamped against hairpins. */
   float miter = 1.0;
@@ -97,4 +108,7 @@ void main()
   vREff = r_eff;
   vTotalLen = total_len;
   vTexHash = h1.y;
+  vRadius = radius;
+  vHw = r_eff;
+  vTang = tang;
 }

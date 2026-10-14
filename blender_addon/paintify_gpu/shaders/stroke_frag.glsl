@@ -23,7 +23,7 @@ float brush_sample(float tu, float row, int tile)
   return mix(mix(a, b, fx), mix(c, d, fx), fy);
 }
 
-void main()
+void webBrush()
 {
   /* worker.js coverage `rEff - dist + 0.5`, with round caps past the ends. */
   float perp = abs(vNorm) * vREff;
@@ -57,4 +57,9 @@ void main()
   }
   fragColor = vec4(vColor * a, a);
   fragHeight = vec4(cov * IMPASTO_STR, 0.0, 0.0, 0.0);
+}
+
+void main() {
+  if (brushkitBrush()) brushkitBrushModel();
+  else webBrush();
 }

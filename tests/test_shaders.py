@@ -11,6 +11,7 @@ package: glslang).
 """
 
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
@@ -20,8 +21,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blender_addon" / "paintify_gpu"))
 import stages
 
-GLSLANG = shutil.which("glslangValidator")
-_TYPES = {"INT": "int", "FLOAT": "float", "IVEC2": "ivec2", "IVEC4": "ivec4",
+GLSLANG = os.environ.get("PAINTIFY_GLSLANG") or shutil.which("glslangValidator")
+_TYPES = {"INT": "int", "FLOAT": "float", "IVEC2": "ivec2", "IVEC4": "ivec4", "VEC2": "vec2",
           "VEC3": "vec3", "VEC4": "vec4"}
 VULKAN, OPENGL = "vulkan", "opengl"
 _VERSION = {VULKAN: "#version 450\n", OPENGL: "#version 430 core\n"}
@@ -41,11 +42,15 @@ def _push_constants(target, push):
     return f"layout(push_constant) uniform PushConstants {{\n{members}}} pc;\n{defines}"
 
 
-def _params_block(target, uses_params):
+def _params_block(target, uses_params, uses_style=False):
     if not uses_params:
         return ""
-    return (stages.PARAMS_STRUCT + f"layout(std140, {_binding(target, 0)}) "
-            "uniform ParamsBlock { PaintParams params; };\n")
+    result = (stages.PARAMS_STRUCT + f"layout(std140, {_binding(target, 0)}) "
+              "uniform ParamsBlock { PaintParams params; };\n")
+    if uses_style:
+        result += (stages.STYLE_STRUCT + f"layout(std140, {_binding(target, 1)}) "
+                   "uniform StyleBlock { BrushkitStyle brushkit; };\n")
+    return result
 
 
 def _samplers(target, names):
@@ -57,7 +62,7 @@ def compute_glsl(name, target=VULKAN):
     _file, samplers, images, push, uses_params, group = stages.COMPUTE[name]
     out = [_VERSION[target],
            "layout(local_size_x = %d, local_size_y = %d, local_size_z = %d) in;\n" % group,
-           _params_block(target, uses_params), _samplers(target, samplers)]
+           _params_block(target, uses_params, name in stages.STYLE_STAGES), _samplers(target, samplers)]
     for i, (fmt, image, access) in enumerate(images):
         qualifier = "" if "READ" in access else "writeonly "
         out.append(f"layout({_binding(target, i)}, {fmt.lower()}) uniform "
@@ -69,7 +74,7 @@ def compute_glsl(name, target=VULKAN):
 
 def stroke_glsl(target=VULKAN):
     spec = stages.STROKE
-    header = [_VERSION[target], _params_block(target, True),
+    header = [_VERSION[target], _params_block(target, True, True),
               _samplers(target, spec["samplers"]), _push_constants(target, spec["push"])]
     varyings = ([("", k, n) for k, n in spec["smooth"]] +
                 [("flat ", k, n) for k, n in spec["flat"]])

@@ -26,6 +26,9 @@
 #define RELAX_MOVE       params.p6.y
 #define RELAX_CANDS      params.p6.z
 #define RELAX_REMOVE     params.p6.w
+#define CUR_LAYER        params.p7.x
+#define ETF_RADIUS       params.p7.y
+#define FRESH_PAINT      params.p7.z
 
 /* Zero unless per-frame jitter is on, so a still repaints identically and a
  * static region of an animation keeps its strokes. */

@@ -7,7 +7,7 @@ targets and runs the stages; `stages.py` declares each shader's resources and
 GLSL for Metal, Vulkan or OpenGL, so the same code runs on macOS, Windows and
 Linux.
 
-Per painted frame, all on the GPU with no readback:
+Per painted frame:
 
 1. Import the source texture. Source and canvas ping-pong between two
    textures each, so the previous frame is kept without copying.
@@ -22,13 +22,32 @@ Per painted frame, all on the GPU with no readback:
    of the style's longest stroke, not of the 33-point maximum.
 4. Optional relaxation over the frame's stroke pool, repainting after each
    iteration, then impasto lighting.
+5. Brushkit finishes and overlays write a separate output texture. The unlit
+   canvas is carried between frames so effects do not accumulate.
+
+`brushkit_data.json` holds the 260-float material layout and all 24 brush-family
+entries exported directly from the standalone C++ registry. `brushkit.py` owns
+the shared `.sbr` format; `settings.py` maps it to Blender properties, with the
+Look/Render inspector and native collapsible panels in `ui.py`.
+
+Brushkit uses a second uniform buffer for procedural bristles, paint load,
+dry-tooth coverage, wet pickup, height and relief, field patterns, Lab colours,
+palettes, support tooth, ground, and post effects. Optional tensor and ETF
+stages smooth directions. Motion uses explicit luma pyramid textures because
+Blender's Python GPU API has no mipmap builder. The carried canvas is resampled
+with Catmull-Rom and an exact-copy path for still regions.
+
+A source-difference reduction reads one float to reuse unchanged output instead
+of painting again. Auto-centred vortices read a small downsampled source. Final
+render export reads the output. Readback buffers are flattened before NumPy
+conversion to avoid Blender 5.1's multidimensional stride mismatch.
 
 Blender's Python GPU API has no storage buffers or atomics, so strokes live in
 RGBA32F textures and each pass owns one cell of every block of `passes`
 consecutive cells, picked by a hashed permutation. That replaces the atomic
 seed compaction of the paintify-GPU renderer and makes painting deterministic.
-Per-layer values travel as push constants; frame settings sit in a uniform
-buffer created once per frame.
+Per-layer geometry travels as push constants; stroke settings use a fresh
+uniform buffer per layer so historical layer overrides survive `.sbr` loading.
 
 Brush radii scale with `sqrt(width * height)` (`looks.stroke_scale`), so the
 look depends on the frame, not the pixel count.
