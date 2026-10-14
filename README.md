@@ -20,7 +20,7 @@ Download the zip for your platform from `dist/` (open the file on GitHub, then
 
 Both zips contain the same files; either works on Linux too. Don't unzip it.
 In Blender, choose **Edit > Preferences > Add-ons > Install from Disk**, pick
-the zip, and enable **Paintify Live**. Preferences should show version 0.3.1.
+the zip, and enable **Paintify Live**. Preferences should show version 0.4.0.
 
 Installing replaces an older Paintify Live in place. If Blender still reports
 `paintify-stream.exe`, an old 0.2.x copy is loaded: uninstall every Paintify
@@ -33,7 +33,14 @@ Open a **3D Viewport**, press **N** for the sidebar, and open **Paintify**.
 Click **Start Live Paint**. Adjust style, brush size, curvature, threshold,
 brush texture, impasto, relaxation and opacity while looking at the viewport.
 **Paint FPS** sets the stop-motion cadence and **Resolution** trades preview
-detail for speed. The panel shows the measured paint rate.
+detail for speed. The panel shows the measured paint rate. When nothing in
+the scene, the view or the settings has changed for a moment, the overlay
+stops repainting and the panel shows **Paused**; any change resumes it.
+
+**Stroke stability** keeps last frame's strokes where the image barely
+changed, so render noise does not make strokes flicker. Wherever the image
+does change, for example around a moving object, the old paint is cleared and
+repainted, so nothing is left behind.
 
 In **camera view** the overlay paints exactly the camera frame, through the
 camera's projection at the render's aspect. That is the preview of the

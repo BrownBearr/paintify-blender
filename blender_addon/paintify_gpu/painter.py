@@ -14,6 +14,8 @@ Relaxation and impasto lighting follow when enabled. Every texture keeps
 Blender's orientation: row 0 is the bottom of the image.
 """
 
+import math
+
 import gpu
 from gpu_extras.batch import batch_for_shader
 
@@ -33,6 +35,10 @@ LIGHT_ANGLE = 45.0
 RELAX_AREA_WEIGHT = 0.06
 RELAX_MOVE_SCALE = 0.8
 RELAX_CANDIDATES = 6.0
+# How far, in coarsest-brush radii, a source change clears and repaints old
+# paint around it. Strokes leak past their own cell; less than this leaves
+# faint trails behind moving objects.
+TRAIL_REACH = 2.0
 
 _shaders = None
 
@@ -84,8 +90,16 @@ class _Shaders:
         for name in stages.COMPUTE:
             setattr(self, name, _compute(name))
         self.stroke = _stroke_shader()
-        self.strip = batch_for_shader(self.stroke, "TRI_STRIP",
-                                      {"vid": [float(i) for i in range(MAX_VERTS * 2)]})
+        self._strips = {}
+
+    def strip(self, points):
+        """A strip with two vertices per point. Sized to the style's longest
+        possible stroke, since every instance runs every vertex."""
+        batch = self._strips.get(points)
+        if batch is None:
+            batch = self._strips[points] = batch_for_shader(
+                self.stroke, "TRI_STRIP", {"vid": [float(i) for i in range(points * 2)]})
+        return batch
 
 
 def shaders():
@@ -119,8 +133,9 @@ class Painter:
 
     def __init__(self):
         self._textures = {}
-        self._framebuffer = None
+        self._framebuffers = {}
         self._framebuffer_key = None
+        self._flip = 0
         self._store_rows = 0
         self._verts = None
         self._heads = None
@@ -153,20 +168,28 @@ class Painter:
             self.reset()
         size = (width, height)
         t = self._texture
-        self.src = t("src", size, "RGBA16F")
-        self.prev_src = t("prev_src", size, "RGBA16F")
+        # Source and canvas ping-pong between two textures each, so the
+        # previous frame's copies are kept by swapping roles, not by copying.
+        self._flip ^= 1
+        a, b = ("a", "b") if self._flip else ("b", "a")
+        self.src = t(("src", a), size, "RGBA16F")
+        self.prev_src = t(("src", b), size, "RGBA16F")
+        self.canvas = t(("canvas", a), size, "RGBA16F")
+        self.prev_canvas = t(("canvas", b), size, "RGBA16F")
         self.ref = t("ref", size, "RGBA16F")
         self.tmp = t("tmp", size, "RGBA16F")
         self.grad = t("grad", size, "RGBA16F")
         self.err = t("err", size, "R32F")
         self.diff = t("diff", size, "R32F")
-        self.canvas = t("canvas", size, "RGBA16F")
+        self.diff_tmp = t("diff_tmp", size, "R32F")
         self.height = t("height", size, "RGBA16F")
-        self.prev_canvas = t("prev_canvas", size, "RGBA16F")
         self.under = t("under", size, "RGBA16F")
         if self._framebuffer_key != size:
-            self._framebuffer = gpu.types.GPUFrameBuffer(color_slots=(self.canvas, self.height))
+            self._framebuffers = {}
             self._framebuffer_key = size
+        if a not in self._framebuffers:
+            self._framebuffers[a] = gpu.types.GPUFrameBuffer(color_slots=(self.canvas, self.height))
+        self._framebuffer = self._framebuffers[a]
 
     def _ensure_store(self, strokes):
         rows = max(1, -(-strokes // STROKES_PER_ROW))
@@ -249,7 +272,7 @@ class Painter:
             s.stroke.uniform_block("params", self.params)
             s.stroke.uniform_int("uDraw", (first, count, draw_order_step(count), 0))
             s.stroke.uniform_float("uTex", tex)
-            s.strip.draw_instanced(s.stroke, instance_start=0, instance_count=count)
+            s.strip(self._points).draw_instanced(s.stroke, instance_start=0, instance_count=count)
             gpu.state.blend_set(blend)
             gpu.state.depth_test_set(depth)
 
@@ -282,6 +305,8 @@ class Painter:
         style = look.style
         radii = layer_radii(style, scale)
         self._radii = radii
+        # Trace stops after max_len steps and relaxation only shortens.
+        self._points = min(MAX_VERTS, int(min(style.max_len, MAX_VERTS - 1)) + 1)
         key = (look, radii)
         carried = self.size == (width, height) and self._have_prev
         self._resize(width, height)
@@ -291,20 +316,33 @@ class Painter:
         w, h = width, height
         size_px = ("uSize", (w, h))
 
-        # Keep the outgoing source for the temporal difference, then import.
-        if carried:
-            self._copy(self.src, self.prev_src)
+        # The swap in _resize already kept last frame's source in prev_src.
         self._copy(source, self.src, mode=0)
 
         # Underpaint: last frame's paint, the coarsest blur, or the mean.
+        # `ref_sigma` remembers which blur `ref` holds, so the first layer can
+        # reuse it instead of blurring again.
+        ref_sigma = None
         if use_temporal:
-            self._copy(self.prev_canvas, self.canvas)
+            ref_sigma = max(0.1, radii[0] * 0.5)
+            self._blur(self.src, self.ref, ref_sigma)
             self._run(s.errmap, _groups(w, h), [("uA", self.src), ("uB", self.prev_src)],
-                      [("uOut", self.diff)], [("uMode", 1), size_px])
+                      [("uOut", self.diff_tmp)], [("uMode", 1), size_px])
+            # Grow the change by the stroke reach, then start the changed area
+            # from fresh ground. Reusing old paint there is what left trails.
+            reach = max(1, int(math.ceil(radii[0] * TRAIL_REACH)))
+            self._run(s.dilate, _groups(w, h), [("uIn", self.diff_tmp)], [("uOut", self.err)],
+                      [("uDir", (1, 0, w, h)), ("uRadius", reach)])
+            self._run(s.dilate, _groups(w, h), [("uIn", self.err)], [("uOut", self.diff)],
+                      [("uDir", (0, 1, w, h)), ("uRadius", reach)])
+            self._run(s.carry, _groups(w, h),
+                      [("uPrev", self.prev_canvas), ("uFresh", self.ref), ("uMask", self.diff)],
+                      [("uOut", self.canvas)], [size_px], [("uThreshold", look.temporal_diff)])
         elif style.underpaint == "average":
             self._mean_fill()
         else:
-            self._blur(self.src, self.ref, max(0.1, radii[0] * 0.5))
+            ref_sigma = max(0.1, radii[0] * 0.5)
+            self._blur(self.src, self.ref, ref_sigma)
             self._copy(self.ref, self.canvas, mode=0)
         self.height.clear(format="FLOAT", value=(0.0, 0.0, 0.0, 0.0))
 
@@ -321,7 +359,10 @@ class Painter:
         regions = []
         next_slot = 0
         for layer, plan in enumerate(plans):
-            self._blur(self.src, self.ref, max(0.1, plan.radius * 0.5))
+            sigma = max(0.1, plan.radius * 0.5)
+            if sigma != ref_sigma:
+                self._blur(self.src, self.ref, sigma)
+                ref_sigma = sigma
             self._run(s.sobel, _groups(w, h), [("uRef", self.ref)], [("uOut", self.grad)],
                       [size_px])
             # Error once per layer against the canvas before this layer paints,
@@ -367,7 +408,6 @@ class Painter:
             self._run(s.impasto, _groups(w, h), [("uHeight", self.height)],
                       [("uCanvas", self.canvas)], [size_px], params=True)
 
-        self._copy(self.canvas, self.prev_canvas)
         self._have_prev = True
         self._prev_key = key
         return self.canvas

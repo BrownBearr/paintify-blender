@@ -46,6 +46,29 @@ def check_painter():
         assert np.array_equal(first, again.read_pixels()), "painting must be deterministic"
 
 
+def check_no_trails():
+    """A square sliding over a textured ground must not leave red strokes in
+    the area it has left, with stroke stability at its default."""
+    w, h = 480, 270
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    ground = np.zeros((h, w, 4), np.float32)
+    ground[..., 0] = 0.3 + 0.2 * np.sin(x / 23)
+    ground[..., 1] = 0.5 + 0.2 * np.cos(y / 17)
+    ground[..., 2], ground[..., 3] = 0.6, 1.0
+    p = painter.Painter()
+    look = Look()
+    assert look.temporal_diff > 0, "the default should keep strokes stable"
+    for step in range(8):
+        frame = ground.copy()
+        x0 = 60 + step * 30
+        frame[90:180, x0:x0 + 70, :3] = (0.9, 0.15, 0.1)
+        p.paint(painter.texture_from_pixels(frame.ravel(), w, h), w, h, look,
+                scale=stroke_scale(w, h))
+    left_behind = p.read_pixels()[80:190, 40:x0 - 10, :3]
+    red = (left_behind[..., 0] > 0.6) & (left_behind[..., 1] < 0.35)
+    assert red.mean() == 0.0, f"trail behind the moving square: {red.mean():.4f}"
+
+
 def check_viewport(area, region):
     scene = bpy.context.scene
     with bpy.context.temp_override(window=bpy.context.window, area=area, region=region):
@@ -62,6 +85,12 @@ def check_viewport(area, region):
             canvas = viewport._Viewport.canvas
             aspect = scene.render.resolution_x / scene.render.resolution_y
             assert abs(canvas.width / canvas.height - aspect) < 0.05, (canvas.width, canvas.height)
+            # Once nothing has changed for the settle period, redraws stop painting.
+            viewport._Viewport.last_change -= viewport.SETTLE_SECONDS + 1.0
+            viewport._Viewport.last_capture = 0.0
+            viewport._draw_overlay()
+            assert viewport._Viewport.last_capture == 0.0, "an unchanged view repainted"
+            assert viewport.idle()
         finally:
             assert bpy.ops.paintify.toggle_live() == {"FINISHED"}
     assert not viewport.running()
@@ -137,6 +166,7 @@ def check_render(out_dir):
 
 try:
     check_painter()
+    check_no_trails()
     area = next(area for area in bpy.context.screen.areas if area.type == "VIEW_3D")
     region = next(region for region in area.regions if region.type == "WINDOW")
     check_viewport(area, region)

@@ -9,13 +9,17 @@ Linux.
 
 Per painted frame, all on the GPU with no readback:
 
-1. Import the source texture, keeping the previous one for temporal mode.
-2. Underpaint: the previous canvas (temporal), the coarsest Gaussian, or the
-   image mean.
+1. Import the source texture. Source and canvas ping-pong between two
+   textures each, so the previous frame is kept without copying.
+2. Underpaint: the coarsest Gaussian, or the image mean. In temporal mode, the
+   previous canvas, except where the source changed: that difference is
+   dilated by twice the coarsest radius and those pixels restart from the
+   fresh Gaussian, so strokes of a moved object cannot linger as a trail.
 3. Per layer, coarse to fine: Gaussian reference, Sobel gradient, Lab error
    against the canvas, per-cell reduction. Then 8 to 32 passes of seed+trace
    (compute) and stroke rasterisation (instanced triangle strips, premultiplied
-   blend into canvas and height targets).
+   blend into canvas and height targets). The strip has two vertices per point
+   of the style's longest stroke, not of the 33-point maximum.
 4. Optional relaxation over the frame's stroke pool, repainting after each
    iteration, then impasto lighting.
 
@@ -30,6 +34,9 @@ Brush radii scale with `sqrt(width * height)` (`looks.stroke_scale`), so the
 look depends on the frame, not the pixel count.
 
 `viewport.py` draws the live overlay from a 3D Viewport `POST_PIXEL` handler.
+It repaints only while the view, scene (depsgraph and frame handlers) or
+settings changed within the last 1.5 s; after that the overlay stays as it is
+and costs nothing.
 In camera view it renders the camera frame through `GPUOffScreen.draw_view3d`
 with the camera's matrices at the render aspect; otherwise the whole region.
 The painted canvas is drawn back as a textured quad.

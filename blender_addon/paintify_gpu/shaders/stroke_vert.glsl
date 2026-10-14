@@ -27,7 +27,6 @@ void main()
 {
   uint count = uint(max(uDraw.y, 1));
   int stroke = uDraw.x + int((uint(gl_InstanceID) * uint(uDraw.z)) % count);
-  vec4 h0 = texelFetch(uHeads, head_texel(stroke, 0), 0);
   vec4 h1 = texelFetch(uHeads, head_texel(stroke, 1), 0);
   int vc = int(h1.x + 0.5);
 
@@ -44,6 +43,8 @@ void main()
     return;
   }
 
+  /* Most slots are empty on the fine layers; they exit above on one fetch. */
+  vec4 h0 = texelFetch(uHeads, head_texel(stroke, 0), 0);
   int vid_i = int(vid + 0.5);
   int i = min(vid_i / 2, vc - 1);
   float side = (vid_i % 2 == 0) ? -1.0 : 1.0;

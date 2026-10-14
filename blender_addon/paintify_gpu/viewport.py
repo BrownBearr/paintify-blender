@@ -17,6 +17,11 @@ from .painter import Painter
 from .settings import look_from_settings
 
 MAX_CAPTURE_PIXELS = 3840 * 2160
+# Keep painting this long after the last change, so the viewport's own
+# progressive samples (Material Preview, Rendered) still reach the overlay.
+# After that an unchanged view costs nothing.
+SETTLE_SECONDS = 1.5
+IDLE_POLL = 0.25
 
 
 class _Viewport:
@@ -31,6 +36,9 @@ class _Viewport:
     error = ""
     result_time = 0.0
     actual_fps = 0.0
+    last_change = 0.0
+    view_key = None
+    settings_key = None
 
 
 def running():
@@ -41,13 +49,36 @@ def status():
     return _Viewport.actual_fps, _Viewport.error
 
 
+def idle():
+    """True when nothing changed lately, so the overlay is not repainting."""
+    return running() and time.monotonic() - _Viewport.last_change >= SETTLE_SECONDS
+
+
 def render_size(scene):
     pct = scene.render.resolution_percentage / 100.0
     return (max(1, int(scene.render.resolution_x * pct)),
             max(1, int(scene.render.resolution_y * pct)))
 
 
+def _changed(*_args):
+    _Viewport.last_change = time.monotonic()
+
+
+def _settings_key(scene):
+    settings = scene.paintify_live
+    return (look_from_settings(settings), settings.opacity, settings.fps, settings.resolution)
+
+
+def _watch(enable):
+    for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.frame_change_post):
+        if _changed in handlers:
+            handlers.remove(_changed)
+        if enable:
+            handlers.append(_changed)
+
+
 def stop():
+    _watch(False)
     if _Viewport.handler is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_Viewport.handler, "WINDOW")
         _Viewport.handler = None
@@ -118,7 +149,8 @@ def _paint(context, settings, rect):
         frame=context.scene.frame_current)
 
     now = time.monotonic()
-    if _Viewport.result_time:
+    # A gap after an idle pause is not a slow frame.
+    if _Viewport.result_time and now - _Viewport.result_time < SETTLE_SECONDS:
         instant = 1.0 / max(now - _Viewport.result_time, 0.001)
         _Viewport.actual_fps = (0.75 * _Viewport.actual_fps + 0.25 * instant
                                 if _Viewport.actual_fps else instant)
@@ -137,7 +169,15 @@ def _draw_overlay():
     rect = _camera_rect(context.scene, region, rv3d)
 
     now = time.monotonic()
-    if not _Viewport.failed and now - _Viewport.last_capture >= 1.0 / settings.fps:
+    view_key = (tuple(map(tuple, rv3d.view_matrix)), tuple(map(tuple, rv3d.window_matrix)),
+                region.width, region.height, rect, context.space_data.shading.type,
+                _settings_key(context.scene))
+    if view_key != _Viewport.view_key:
+        _Viewport.view_key = view_key
+        _Viewport.last_change = now
+    settling = now - _Viewport.last_change < SETTLE_SECONDS or _Viewport.canvas is None
+    if (not _Viewport.failed and settling and
+            now - _Viewport.last_capture >= 1.0 / settings.fps):
         _Viewport.last_capture = now
         # draw_view3d runs the viewport's draw handlers again; skip that nesting.
         _Viewport.busy_capture = True
@@ -174,12 +214,22 @@ def _tick():
     if _Viewport.handler is None:
         return None
     scene = bpy.context.scene
-    fps = scene.paintify_live.fps if scene is not None else 12
+    fps = 12
+    if scene is not None:
+        fps = scene.paintify_live.fps
+        key = _settings_key(scene)
+        if key != _Viewport.settings_key:
+            _Viewport.settings_key = key
+            _changed()
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.as_pointer() == _Viewport.area_pointer:
-                area.tag_redraw()
-                return min(0.05, 0.5 / fps)
+                # Redraw only while something changed recently; navigating
+                # redraws the viewport by itself, which restarts painting.
+                if time.monotonic() - _Viewport.last_change < SETTLE_SECONDS:
+                    area.tag_redraw()
+                    return min(0.05, 0.5 / fps)
+                return IDLE_POLL
     stop()
     return None
 
@@ -204,6 +254,10 @@ class PAINTIFY_OT_toggle(bpy.types.Operator):
         _Viewport.last_capture = 0.0
         _Viewport.result_time = 0.0
         _Viewport.actual_fps = 0.0
+        _Viewport.view_key = None
+        _Viewport.settings_key = None
+        _changed()
+        _watch(True)
         _Viewport.handler = bpy.types.SpaceView3D.draw_handler_add(
             _draw_overlay, (), "WINDOW", "POST_PIXEL")
         bpy.app.timers.register(_tick, first_interval=0.05)

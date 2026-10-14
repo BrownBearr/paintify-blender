@@ -31,7 +31,9 @@ class PAINTIFY_PT_live(bpy.types.Panel):
         layout.prop(settings, "fps")
         layout.prop(settings, "resolution")
         fps, error = viewport.status()
-        if running and fps:
+        if viewport.idle():
+            layout.label(text="Paused: nothing changed", icon="PAUSE")
+        elif running and fps:
             layout.label(text=f"Measured paint: {fps:.1f} FPS")
         if error:
             layout.label(text=error[:60], icon="ERROR")

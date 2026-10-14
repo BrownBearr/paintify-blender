@@ -27,7 +27,9 @@ class PAINTIFY_LiveSettings(bpy.types.PropertyGroup):
     temporal_diff: FloatProperty(
         name="Stroke stability", default=12, min=0, max=255,
         description="Source change (0-255) below which a region keeps the previous "
-                    "frame's strokes. 0 repaints every frame from scratch",
+                    "frame's strokes, which stops render noise from making strokes flicker. "
+                    "Areas that change are cleared and repainted, so moving objects leave "
+                    "no trail. 0 repaints every frame from scratch",
     )
     opacity: FloatProperty(name="Overlay opacity", default=1, min=0, max=1)
     fps: IntProperty(
