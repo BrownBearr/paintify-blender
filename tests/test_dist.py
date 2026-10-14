@@ -33,7 +33,7 @@ class DistTests(unittest.TestCase):
     def test_only_the_addon_ships(self):
         for file in package_addon.addon_files():
             self.assertTrue(file.startswith("paintify_gpu/"), file)
-            self.assertTrue(file.endswith((".py", ".glsl")), file)
+            self.assertTrue(file.endswith((".py", ".glsl", ".json")), file)
 
 
 if __name__ == "__main__":

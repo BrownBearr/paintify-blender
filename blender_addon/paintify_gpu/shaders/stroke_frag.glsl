@@ -1,6 +1,14 @@
 /* Coverage and brush texture for one stroke fragment. Colour blends as
  * premultiplied source-over; height goes out with zero alpha, which turns the
- * same blend into the additive `heightBuf += coverage * impasto`. */
+ * same blend into the additive `heightBuf += coverage * impasto`. Its green
+ * channel adds up plain geometric coverage the same way: Paintify Scene reads
+ * it to find surface that no stroke covers yet.
+ *
+ * Shared by the screen strokes and the scene strokes (scene_stroke_vert.glsl),
+ * which pass every length in the pixels of the frame they were painted in, so
+ * the brush texture stays fixed on the stroke as it moves. vVis fades a scene
+ * stroke out, and SCENE_STROKE hides its fragments behind a nearer surface of
+ * the G-buffer. */
 #define BRUSH_TILE_W 64
 #define BRUSH_TILE_H 48
 
@@ -23,16 +31,22 @@ float brush_sample(float tu, float row, int tile)
   return mix(mix(a, b, fx), mix(c, d, fx), fy);
 }
 
-void main()
+void webBrush()
 {
   /* worker.js coverage `rEff - dist + 0.5`, with round caps past the ends. */
   float perp = abs(vNorm) * vREff;
   float over = max(0.0, max(-vArcPx, vArcPx - vTotalLen));
   float dist = sqrt(perp * perp + over * over);
-  float cov = clamp(vREff - dist + 0.5, 0.0, 1.0);
+#ifdef SCENE_STROKE
+  if (vDepth > texelFetch(uGDepth, ivec2(gl_FragCoord.xy), 0).r + vDepthTol) {
+    discard;
+  }
+#endif
+  float cov = clamp(vREff - dist + 0.5, 0.0, 1.0) * clamp(vVis, 0.0, 1.0);
   if (cov <= 0.0) {
     discard;
   }
+  float cov_geom = cov;
 
   /* uTex: (rows in use, first tile of this layer, u scale, unused). One tile
    * repeat every max(16, 4 * radius) px, as renderStrokeSolid does. */
@@ -53,8 +67,20 @@ void main()
   }
   float a = min(1.0, cov * op);
   if (a < 0.002 && IMPASTO_STR <= 0.0) {
+#ifdef SCENE_STROKE
+    /* Covered though too faint to paint; see procedural.glsl. */
+    fragColor = vec4(0.0);
+    fragHeight = vec4(0.0, cov_geom, 0.0, 0.0);
+    return;
+#else
     discard;
+#endif
   }
   fragColor = vec4(vColor * a, a);
-  fragHeight = vec4(cov * IMPASTO_STR, 0.0, 0.0, 0.0);
+  fragHeight = vec4(cov * IMPASTO_STR, cov_geom, 0.0, 0.0);
+}
+
+void main() {
+  if (brushkitBrush()) brushkitBrushModel();
+  else webBrush();
 }

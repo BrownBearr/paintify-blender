@@ -2,7 +2,8 @@
 
 In camera view the overlay paints exactly the camera frame, drawn with the
 camera's own projection at the render's aspect, so it previews what the
-render operators produce. Elsewhere it paints the whole region.
+render operators produce. Elsewhere it paints the whole region. In Object or
+World paint space, strokes stay on the scene's surfaces (see scene.py).
 """
 
 import time
@@ -12,11 +13,16 @@ import gpu
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 
+from . import scene as scene_paint
 from .looks import stroke_scale
-from .painter import Painter
 from .settings import look_from_settings
 
 MAX_CAPTURE_PIXELS = 3840 * 2160
+# Keep painting this long after the last change, so the viewport's own
+# progressive samples (Material Preview, Rendered) still reach the overlay.
+# After that an unchanged view costs nothing.
+SETTLE_SECONDS = 1.5
+IDLE_POLL = 0.25
 
 
 class _Viewport:
@@ -31,6 +37,9 @@ class _Viewport:
     error = ""
     result_time = 0.0
     actual_fps = 0.0
+    last_change = 0.0
+    view_key = None
+    settings_key = None
 
 
 def running():
@@ -41,13 +50,50 @@ def status():
     return _Viewport.actual_fps, _Viewport.error
 
 
+def idle():
+    """True when nothing changed lately, so the overlay is not repainting."""
+    return running() and time.monotonic() - _Viewport.last_change >= SETTLE_SECONDS
+
+
+def scene_status():
+    """(stored scene strokes, store full) of the running overlay."""
+    painter = _Viewport.painter
+    if painter is None:
+        return 0, False
+    return painter.scene_strokes, painter.scene_full
+
+
+def reset_scene():
+    if _Viewport.painter is not None:
+        _Viewport.painter.reset_scene()
+
+
 def render_size(scene):
     pct = scene.render.resolution_percentage / 100.0
     return (max(1, int(scene.render.resolution_x * pct)),
             max(1, int(scene.render.resolution_y * pct)))
 
 
+def _changed(*_args):
+    _Viewport.last_change = time.monotonic()
+
+
+def _settings_key(scene):
+    settings = scene.paintify_live
+    return (look_from_settings(settings), settings.opacity, settings.fps, settings.resolution,
+            settings.space, settings.relight)
+
+
+def _watch(enable):
+    for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.frame_change_post):
+        if _changed in handlers:
+            handlers.remove(_changed)
+        if enable:
+            handlers.append(_changed)
+
+
 def stop():
+    _watch(False)
     if _Viewport.handler is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_Viewport.handler, "WINDOW")
         _Viewport.handler = None
@@ -112,13 +158,18 @@ def _paint(context, settings, rect):
     offscreen.draw_view3d(context.scene, context.view_layer, context.space_data, context.region,
                           view, projection, do_color_management=True)
     look = look_from_settings(settings)
+    view_input = None
+    if settings.space != "SCREEN":
+        view_input = scene_paint.collect(context.evaluated_depsgraph_get(), view, projection,
+                                         settings.space, settings.relight)
     _Viewport.canvas = _Viewport.painter.paint(
         offscreen.texture_color, width, height, look,
         scale=stroke_scale(width, height, look.brush_size), temporal=True,
-        frame=context.scene.frame_current)
+        frame=context.scene.frame_current, view=view_input)
 
     now = time.monotonic()
-    if _Viewport.result_time:
+    # A gap after an idle pause is not a slow frame.
+    if _Viewport.result_time and now - _Viewport.result_time < SETTLE_SECONDS:
         instant = 1.0 / max(now - _Viewport.result_time, 0.001)
         _Viewport.actual_fps = (0.75 * _Viewport.actual_fps + 0.25 * instant
                                 if _Viewport.actual_fps else instant)
@@ -137,7 +188,15 @@ def _draw_overlay():
     rect = _camera_rect(context.scene, region, rv3d)
 
     now = time.monotonic()
-    if not _Viewport.failed and now - _Viewport.last_capture >= 1.0 / settings.fps:
+    view_key = (tuple(map(tuple, rv3d.view_matrix)), tuple(map(tuple, rv3d.window_matrix)),
+                region.width, region.height, rect, context.space_data.shading.type,
+                _settings_key(context.scene))
+    if view_key != _Viewport.view_key:
+        _Viewport.view_key = view_key
+        _Viewport.last_change = now
+    settling = now - _Viewport.last_change < SETTLE_SECONDS or _Viewport.canvas is None
+    if (not _Viewport.failed and settling and
+            now - _Viewport.last_capture >= 1.0 / settings.fps):
         _Viewport.last_capture = now
         # draw_view3d runs the viewport's draw handlers again; skip that nesting.
         _Viewport.busy_capture = True
@@ -174,14 +233,34 @@ def _tick():
     if _Viewport.handler is None:
         return None
     scene = bpy.context.scene
-    fps = scene.paintify_live.fps if scene is not None else 12
+    fps = 12
+    if scene is not None:
+        fps = scene.paintify_live.fps
+        key = _settings_key(scene)
+        if key != _Viewport.settings_key:
+            _Viewport.settings_key = key
+            _changed()
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.as_pointer() == _Viewport.area_pointer:
-                area.tag_redraw()
-                return min(0.05, 0.5 / fps)
+                # Redraw only while something changed recently; navigating
+                # redraws the viewport by itself, which restarts painting.
+                if time.monotonic() - _Viewport.last_change < SETTLE_SECONDS:
+                    area.tag_redraw()
+                    return min(0.05, 0.5 / fps)
+                return IDLE_POLL
     stop()
     return None
+
+
+def find_viewport(context):
+    if context.area is not None and context.area.type == "VIEW_3D":
+        return context.window, context.area
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                return window, area
+    return None, None
 
 
 class PAINTIFY_OT_toggle(bpy.types.Operator):
@@ -191,21 +270,42 @@ class PAINTIFY_OT_toggle(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.area is not None and context.area.type == "VIEW_3D"
+        return running() or find_viewport(context)[1] is not None
 
     def execute(self, context):
         if running():
             stop()
             return {"FINISHED"}
-        _Viewport.painter = Painter()
-        _Viewport.area_pointer = context.area.as_pointer()
+        window, area = find_viewport(context)
+        if area is None:
+            self.report({"WARNING"}, "Open a 3D Viewport first")
+            return {"CANCELLED"}
+        _Viewport.painter = scene_paint.ScenePainter()
+        _Viewport.area_pointer = area.as_pointer()
         _Viewport.error = ""
         _Viewport.failed = False
         _Viewport.last_capture = 0.0
         _Viewport.result_time = 0.0
         _Viewport.actual_fps = 0.0
+        _Viewport.view_key = None
+        _Viewport.settings_key = None
+        _changed()
+        _watch(True)
         _Viewport.handler = bpy.types.SpaceView3D.draw_handler_add(
             _draw_overlay, (), "WINDOW", "POST_PIXEL")
         bpy.app.timers.register(_tick, first_interval=0.05)
-        context.area.tag_redraw()
+        area.tag_redraw()
+        return {"FINISHED"}
+
+
+class PAINTIFY_OT_reset_scene(bpy.types.Operator):
+    bl_idname = "paintify.reset_scene"
+    bl_label = "Repaint Scene Strokes"
+    bl_description = ("Forget the strokes attached to objects; the next painted frame lays "
+                      "them down again from the current view")
+
+    def execute(self, context):
+        reset_scene()
+        if context.area is not None:
+            context.area.tag_redraw()
         return {"FINISHED"}

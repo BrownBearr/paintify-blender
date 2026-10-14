@@ -1,5 +1,9 @@
 /* One invocation per seed-grid cell: (mean error, argmax x, argmax y, max
- * source difference). uGrid is (spacing, temporal, cells x, cells y). */
+ * source difference). uGrid is (spacing, temporal, cells x, cells y).
+ *
+ * With uMasked, pixels whose G-buffer slot (uMask.w) is an attachable object
+ * are left out: Paintify Scene paints those with strokes that belong to the
+ * object. A cell with no pixel left writes the sentinel y = -1. */
 void main()
 {
   ivec2 cell = ivec2(gl_GlobalInvocationID.xy);
@@ -16,6 +20,9 @@ void main()
   ivec2 best_px = c0;
   for (int y = c0.y; y < c1.y; ++y) {
     for (int x = c0.x; x < c1.x; ++x) {
+      if (uMasked != 0 && texelFetch(uMask, ivec2(x, y), 0).w >= 0.5) {
+        continue;
+      }
       float e = texelFetch(uErr, ivec2(x, y), 0).r;
       sum += e;
       count += 1;
@@ -32,6 +39,10 @@ void main()
       }
     }
   }
-  float mean_err = (count > 0) ? sum / float(count) : 0.0;
+  if (count == 0) {
+    imageStore(uOut, cell, vec4(-1.0, -1.0, -1.0, 0.0));
+    return;
+  }
+  float mean_err = sum / float(count);
   imageStore(uOut, cell, vec4(mean_err, float(best_px.x), float(best_px.y), max_diff));
 }

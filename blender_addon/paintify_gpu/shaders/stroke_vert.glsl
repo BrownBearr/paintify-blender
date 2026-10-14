@@ -6,18 +6,6 @@
  * (i * step) % count; step is coprime to count, so every slot is drawn once
  * in an order decorrelated from position. */
 
-float taper_at(float u, float amt)
-{
-  if (amt <= 0.0) {
-    return 1.0;
-  }
-  float end_frac = 0.06 + 0.30 * amt;
-  float e = min(u, 1.0 - u);
-  float s = clamp(e / end_frac, 0.0, 1.0);
-  s = s * s * (3.0 - 2.0 * s);
-  return (1.0 - 0.45 * amt) + 0.45 * amt * s;
-}
-
 vec2 point_at(int stroke, int i)
 {
   return texelFetch(uVerts, vert_texel(stroke, i), 0).xy;
@@ -27,7 +15,6 @@ void main()
 {
   uint count = uint(max(uDraw.y, 1));
   int stroke = uDraw.x + int((uint(gl_InstanceID) * uint(uDraw.z)) % count);
-  vec4 h0 = texelFetch(uHeads, head_texel(stroke, 0), 0);
   vec4 h1 = texelFetch(uHeads, head_texel(stroke, 1), 0);
   int vc = int(h1.x + 0.5);
 
@@ -38,12 +25,18 @@ void main()
   vTotalLen = 1.0;
   vOpacity = 0.0;
   vTexHash = 0.0;
+  vRadius = 0.0;
+  vHw = 0.0;
+  vTang = vec2(1.0, 0.0);
+  vVis = 1.0;
   if (vc < 2) {
     /* worker.js: fewer than two points draws nothing. */
     gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
     return;
   }
 
+  /* Most slots are empty on the fine layers; they exit above on one fetch. */
+  vec4 h0 = texelFetch(uHeads, head_texel(stroke, 0), 0);
   int vid_i = int(vid + 0.5);
   int i = min(vid_i / 2, vc - 1);
   float side = (vid_i % 2 == 0) ? -1.0 : 1.0;
@@ -71,6 +64,14 @@ void main()
 
   float taper = (TEX_STRENGTH > 0.0) ? taper_at(arc / total_len, clamp(TEX_TAPER, 0.0, 1.0)) : 1.0;
   float r_eff = radius * taper;
+  if (brushkitBrush()) {
+    float u = arc / total_len;
+    float start = ST_TAPER_START > 0.0 ? smoothstep(0.0, ST_TAPER_START, u) : 1.0;
+    float end_ = ST_TAPER_END > 0.0 ? smoothstep(0.0, ST_TAPER_END, 1.0-u) : 1.0;
+    float shape = mix(ST_TIP_MIN, 1.0, min(start, end_));
+    shape *= 1.0 + ST_SWELL * sin(u * 3.14159265);
+    r_eff = max(0.3, radius * ST_WIDTH_SCALE * layerB().x * shape);
+  }
 
   /* Miter so the ribbon edges meet at a bend; clamped against hairpins. */
   float miter = 1.0;
@@ -96,4 +97,7 @@ void main()
   vREff = r_eff;
   vTotalLen = total_len;
   vTexHash = h1.y;
+  vRadius = radius;
+  vHw = r_eff;
+  vTang = tang;
 }
