@@ -10,6 +10,15 @@ The painter runs on Blender's own `gpu` module, so Blender compiles it for
 whatever backend it uses: Metal on macOS, Vulkan or OpenGL on Windows and
 Linux. There is nothing to build and no external program.
 
+<p align="center">
+  <img src="docs/media/before-after.jpg" width="900" alt="An Eevee render of Suzanne, a gold torus, a blue sphere and a green cylinder on the left; the same frame painted by Paintify Live in oil strokes on the right">
+</p>
+
+<p align="center">
+  <a href="docs/media/live-viewport.mp4"><img src="docs/media/live-viewport.webp" width="820" alt="Blender's 3D Viewport in camera view: Start Live Paint turns the rendered scene into a painting that keeps painting as the camera orbits, while the style changes from Impressionist to Expressionist to Pointillist"></a><br>
+  <sub><a href="docs/media/live-viewport.mp4"><b>▶ Full-resolution clip</b></a>: Start Live Paint, then switch styles during playback.</sub>
+</p>
+
 ## Install (Blender 4.2 or newer)
 
 Download the zip for your platform from `dist/` (open the file on GitHub, then
@@ -35,6 +44,16 @@ brush texture, impasto, relaxation and opacity while looking at the viewport.
 **Paint FPS** sets the stop-motion cadence and **Resolution** trades preview
 detail for speed. The panel shows the measured paint rate.
 
+<p align="center">
+  <img src="docs/media/sidebar-panel.jpg" width="620" alt="The Paintify tab in the 3D Viewport sidebar: Stop Live Paint, Style, Brush size, Threshold, Curvature, Brush texture, Impasto, Relaxation, Stroke stability, Overlay opacity, Paint FPS, Resolution, measured paint rate, and the Render subpanel">
+</p>
+
+Four of the five styles, painting the same frame:
+
+<p align="center">
+  <img src="docs/media/styles.jpg" width="900" alt="The same scene painted in four styles: Impressionist, Expressionist with impasto, Pointillist and Wash">
+</p>
+
 In **camera view** the overlay paints exactly the camera frame, through the
 camera's projection at the render's aspect. That is the preview of the
 render. Outside camera view it paints the whole viewport.
@@ -58,6 +77,11 @@ render** on (default), each painted frame is held for scene FPS / Paint FPS
 frames, as the viewport shows during playback. Turn it off to paint every
 frame. Temporal stroke stability carries over from frame to frame as in the
 viewport.
+
+<p align="center">
+  <a href="docs/media/turntable.mp4"><img src="docs/media/turntable.webp" width="720" alt="A painted camera orbit around the scene, rendered with Render Painted Animation at 12 painted frames per second"></a><br>
+  <sub>Render Painted Animation, 12 paint FPS on a 24 FPS scene. <a href="docs/media/turntable.mp4"><b>▶ Side-by-side with the plain Eevee render</b></a></sub>
+</p>
 
 For the closest match between overlay and render, preview in camera view with
 **Rendered** shading. Solid and Material Preview shading paint what those
