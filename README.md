@@ -101,3 +101,8 @@ tests and the packaging tool. See `CLAUDE.md` for the rules.
 - `blender --background --factory-startup --python tests/blender_smoke.py`
   paints, drives the overlay and renders a still, a PNG sequence and an MP4.
   It also runs under the `bpy` 5.2 module; on Linux wrap it in `xvfb-run`.
+
+## License
+
+Paintify Live is free software under the GNU General Public License v3.0 or
+later, the same terms as Blender. See [LICENSE](LICENSE).
